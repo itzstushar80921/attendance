@@ -19,5 +19,6 @@ router.post('/', studentController.createStudent);
 // 3. Parameterized routes
 router.patch('/:id/batch', studentController.updateStudentBatch);
 router.get('/:id', studentController.getStudentById);
+router.delete('/:id', studentController.deleteStudent);
 
 export default router;

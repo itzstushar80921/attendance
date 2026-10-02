@@ -69,6 +69,13 @@ export const api = {
     return handleResponse(res);
   },
 
+  async deleteStudent(id) {
+    const res = await fetch(`${API_BASE}/students/${id}`, {
+      method: 'DELETE'
+    });
+    return handleResponse(res);
+  },
+
   // Batch group editing & customization
   async updateStudentBatch(studentId, batch) {
     const res = await fetch(`${API_BASE}/students/${studentId}/batch`, {

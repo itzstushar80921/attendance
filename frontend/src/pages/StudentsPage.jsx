@@ -8,14 +8,16 @@ import {
   Phone, 
   Filter, 
   Check, 
-  X,
-  AlertCircle,
-  Settings,
-  Edit2,
-  Layers,
-  ArrowRight,
-  CheckSquare,
-  Square
+  X, 
+  AlertCircle, 
+  AlertTriangle,
+  Settings, 
+  Edit2, 
+  Trash2,
+  CheckSquare, 
+  Square,
+  CheckCircle2,
+  BookOpen
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -25,11 +27,14 @@ export default function StudentsPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [batchFilter, setBatchFilter] = useState('All');
+  const [semesterFilter, setSemesterFilter] = useState('All');
   
   // Modals & UI states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isBatchManagerOpen, setIsBatchManagerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [successToast, setSuccessToast] = useState(null);
+  const [addError, setAddError] = useState(null);
 
   // Bulk selection
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
@@ -50,7 +55,7 @@ export default function StudentsPage() {
     name: '',
     email: '',
     department: 'Computer Science & Engineering',
-    semester: 5,
+    semester: 1,
     section: 'A',
     lab_batch: 'B1',
     phone: ''
@@ -59,13 +64,16 @@ export default function StudentsPage() {
   const fetchStudents = async () => {
     try {
       setLoading(true);
-      const res = await api.getStudents({ semester: 5 });
+      // Fetch all students (not hardcoded to semester 5 so all added students show up!)
+      const res = await api.getStudents({
+        semester: semesterFilter !== 'All' ? semesterFilter : undefined
+      });
       if (res.success) {
         setStudents(res.data);
         if (res.batches && res.batches.length > 0) {
           setAvailableBatches(res.batches);
-          setRenameOldBatch(res.batches[0]);
-          setBulkTargetBatch(res.batches[0]);
+          if (!renameOldBatch) setRenameOldBatch(res.batches[0]);
+          if (!bulkTargetBatch) setBulkTargetBatch(res.batches[0]);
         }
       }
     } catch (err) {
@@ -77,7 +85,7 @@ export default function StudentsPage() {
 
   useEffect(() => {
     fetchStudents();
-  }, []);
+  }, [semesterFilter]);
 
   const filteredStudents = useMemo(() => {
     return students.filter(st => {
@@ -107,12 +115,29 @@ export default function StudentsPage() {
       if (res.success) {
         setStudents(prev => prev.map(s => s.id === studentId ? { ...s, lab_batch: newBatch } : s));
         setEditingStudentId(null);
+        showToast(`Student batch updated to ${newBatch}!`);
         if (!availableBatches.includes(newBatch)) {
           setAvailableBatches(prev => [...prev, newBatch].sort());
         }
       }
     } catch (err) {
       alert('Error updating batch: ' + err.message);
+    }
+  };
+
+  // Delete student
+  const handleDeleteStudent = async (studentId, studentName) => {
+    if (!window.confirm(`Are you sure you want to remove student "${studentName}" from the database?`)) {
+      return;
+    }
+    try {
+      const res = await api.deleteStudent(studentId);
+      if (res.success) {
+        setStudents(prev => prev.filter(s => s.id !== studentId));
+        showToast(`Student ${studentName} removed from database.`);
+      }
+    } catch (err) {
+      alert('Failed to delete student: ' + err.message);
     }
   };
 
@@ -124,8 +149,9 @@ export default function StudentsPage() {
       const res = await api.bulkUpdateBatches(selectedStudentIds, bulkTargetBatch);
       if (res.success) {
         setStudents(prev => prev.map(s => selectedStudentIds.includes(s.id) ? { ...s, lab_batch: bulkTargetBatch } : s));
+        const count = selectedStudentIds.length;
         setSelectedStudentIds([]);
-        alert(`Successfully reassigned ${selectedStudentIds.length} students to Batch ${bulkTargetBatch}!`);
+        showToast(`Successfully reassigned ${count} students to Batch ${bulkTargetBatch}!`);
       }
     } catch (err) {
       alert('Bulk update error: ' + err.message);
@@ -144,7 +170,7 @@ export default function StudentsPage() {
       setSubmitting(true);
       const res = await api.renameBatch(renameOldBatch, cleanNew);
       if (res.success) {
-        alert(`Batch ${renameOldBatch} renamed to ${cleanNew}!`);
+        showToast(`Batch ${renameOldBatch} renamed to ${cleanNew}!`);
         setRenameNewBatch('');
         fetchStudents();
       }
@@ -165,36 +191,68 @@ export default function StudentsPage() {
     }
     setBulkTargetBatch(clean);
     setNewBatchName('');
-    alert(`Batch "${clean}" added! You can now assign students to this batch.`);
+    showToast(`Batch "${clean}" added! You can now assign students to this batch.`);
   };
 
-  // Add student form submit
-  const handleAddStudentSubmit = async (e) => {
-    e.preventDefault();
+  const showToast = (msg) => {
+    setSuccessToast(msg);
+    setTimeout(() => {
+      setSuccessToast(null);
+    }, 4500);
+  };
+
+  // Add student form submit with duplicate handling & update_if_exists
+  const handleAddStudentSubmit = async (e, forceUpdate = false) => {
+    if (e && e.preventDefault) e.preventDefault();
     if (!newStudent.roll_number || !newStudent.name) {
-      alert('Please fill in Roll Number and Student Name');
+      setAddError({ message: 'Roll Number and Student Name are required.' });
       return;
     }
 
     try {
       setSubmitting(true);
-      const res = await api.addStudent(newStudent);
+      setAddError(null);
+
+      const payload = {
+        ...newStudent,
+        update_if_exists: forceUpdate
+      };
+
+      const res = await api.addStudent(payload);
       if (res.success) {
         setIsAddModalOpen(false);
+        showToast(res.message || `Student ${newStudent.name} saved successfully!`);
+        
+        // Reset form
         setNewStudent({
           roll_number: '',
           name: '',
           email: '',
           department: 'Computer Science & Engineering',
-          semester: 5,
+          semester: 1,
           section: 'A',
           lab_batch: availableBatches[0] || 'B1',
           phone: ''
         });
-        fetchStudents();
+
+        // Ensure semester filter shows newly added student
+        if (semesterFilter !== 'All' && semesterFilter !== newStudent.semester) {
+          setSemesterFilter('All');
+        } else {
+          fetchStudents();
+        }
       }
     } catch (err) {
-      alert('Failed to add student: ' + err.message);
+      // Check if error is duplicate
+      const msg = err.message || 'Failed to save student';
+      if (msg.includes('already exists') || msg.includes('already assigned') || msg.includes('duplicate')) {
+        setAddError({
+          message: msg,
+          isDuplicate: true
+        });
+      } else {
+        setAddError({ message: msg });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -217,6 +275,15 @@ export default function StudentsPage() {
   return (
     <div className="space-y-6 pb-20">
       
+      {/* Toast Notification */}
+      {successToast && (
+        <div className="fixed top-20 right-4 sm:right-6 z-50 bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 animate-in slide-in-from-top duration-200">
+          <CheckCircle2 className="w-5 h-5 text-emerald-200 shrink-0" />
+          <span className="text-xs sm:text-sm font-bold">{successToast}</span>
+          <button onClick={() => setSuccessToast(null)} className="ml-2 text-white/80 hover:text-white">✕</button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -224,7 +291,7 @@ export default function StudentsPage() {
             Class Roster & Batch Management
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
-            Manage students and customize lab batch groups stored in Supabase
+            Manage student registrations and customize lab batch groups stored in Supabase
           </p>
         </div>
 
@@ -238,7 +305,10 @@ export default function StudentsPage() {
           </button>
 
           <button
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => {
+              setAddError(null);
+              setIsAddModalOpen(true);
+            }}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-indigo-100 transition-all"
           >
             <UserPlus className="w-4 h-4" />
@@ -247,23 +317,39 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {/* Dynamic Batch Overview Chips */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Configured Lab Batches ({availableBatches.length})
+      {/* Semester & Batch Filters Bar */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+        
+        {/* Semester Selection */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+            <BookOpen className="w-3.5 h-3.5" /> Semester:
           </span>
-          <span className="text-xs text-indigo-600 font-semibold">
-            {students.length} Total Students Enrolled
-          </span>
+          {['All', 1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+            <button
+              key={sem}
+              onClick={() => setSemesterFilter(sem)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                semesterFilter === sem
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {sem === 'All' ? 'All Semesters' : `Sem ${sem}`}
+            </button>
+          ))}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap pt-1">
+        {/* Batch Selection */}
+        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+            <Filter className="w-3.5 h-3.5" /> Lab Batch:
+          </span>
           <button
             onClick={() => setBatchFilter('All')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
               batchFilter === 'All'
-                ? 'bg-slate-900 text-white shadow-sm'
+                ? 'bg-slate-900 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -274,9 +360,9 @@ export default function StudentsPage() {
             <button
               key={b}
               onClick={() => setBatchFilter(b)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                 batchFilter === b
-                  ? 'bg-violet-600 text-white shadow-sm'
+                  ? 'bg-violet-600 text-white shadow-xs'
                   : 'bg-violet-50 text-violet-800 border border-violet-200 hover:bg-violet-100'
               }`}
             >
@@ -363,12 +449,13 @@ export default function StudentsPage() {
       {loading ? (
         <div className="py-16 text-center">
           <div className="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-          <p className="text-sm font-semibold text-slate-600">Loading student roster...</p>
+          <p className="text-sm font-semibold text-slate-600">Loading student roster from Supabase...</p>
         </div>
       ) : filteredStudents.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center">
           <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
           <p className="text-sm font-bold text-slate-700">No students found matching query</p>
+          <p className="text-xs text-slate-500 mt-1">Try selecting "All Semesters" or resetting batch filter</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -462,7 +549,13 @@ export default function StudentsPage() {
                   )}
                   <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 pt-1">
                     <span>Semester {st.semester} • Section {st.section}</span>
-                    <span className="text-emerald-600">Enrolled</span>
+                    <button
+                      onClick={() => handleDeleteStudent(st.id, st.name)}
+                      className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50 transition-all"
+                      title="Remove student from database"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -566,7 +659,7 @@ export default function StudentsPage() {
         </div>
       )}
 
-      {/* Modal: Add New Student */}
+      {/* Modal: Add New Student (With Inline Duplicate Validation & Overwrite) */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in fade-in duration-200">
@@ -578,14 +671,50 @@ export default function StudentsPage() {
                 </h3>
               </div>
               <button
-                onClick={() => setIsAddModalOpen(false)}
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  setAddError(null);
+                }}
                 className="w-8 h-8 rounded-full bg-slate-200 hover:bg-slate-300 flex items-center justify-center text-slate-600"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleAddStudentSubmit} className="p-4 sm:p-6 space-y-4">
+            <form onSubmit={(e) => handleAddStudentSubmit(e, false)} className="p-4 sm:p-6 space-y-4">
+              
+              {/* Duplicate Error Banner with Overwrite Action */}
+              {addError && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-2 animate-in fade-in">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block">Attention:</span>
+                      <span>{addError.message}</span>
+                    </div>
+                  </div>
+                  {addError.isDuplicate && (
+                    <div className="pt-2 flex items-center gap-2 border-t border-amber-200">
+                      <button
+                        type="button"
+                        onClick={() => handleAddStudentSubmit(null, true)}
+                        disabled={submitting}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-xs"
+                      >
+                        {submitting ? 'Updating...' : 'Update & Overwrite with New Details'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddError(null)}
+                        className="px-2 py-1 text-xs text-amber-800 hover:underline"
+                      >
+                        Change Roll Number
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
                   Roll Number *
@@ -593,10 +722,13 @@ export default function StudentsPage() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. 2024CS021"
+                  placeholder="e.g. 2504001"
                   value={newStudent.roll_number}
-                  onChange={(e) => setNewStudent(prev => ({ ...prev, roll_number: e.target.value }))}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-sm text-slate-900 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  onChange={(e) => {
+                    setNewStudent(prev => ({ ...prev, roll_number: e.target.value }));
+                    if (addError) setAddError(null);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                 />
               </div>
 
@@ -607,10 +739,10 @@ export default function StudentsPage() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Priyanshu Roy"
+                  placeholder="e.g. Aditya Sharma"
                   value={newStudent.name}
                   onChange={(e) => setNewStudent(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                 />
               </div>
 
@@ -622,7 +754,7 @@ export default function StudentsPage() {
                   <select
                     value={newStudent.semester}
                     onChange={(e) => setNewStudent(prev => ({ ...prev, semester: parseInt(e.target.value, 10) }))}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
                       <option key={s} value={s}>Semester {s}</option>
@@ -637,11 +769,12 @@ export default function StudentsPage() {
                   <select
                     value={newStudent.lab_batch}
                     onChange={(e) => setNewStudent(prev => ({ ...prev, lab_batch: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     {availableBatches.map(b => (
                       <option key={b} value={b}>Batch {b}</option>
                     ))}
+                    <option value="B3">Batch B3</option>
                   </select>
                 </div>
               </div>
@@ -655,14 +788,17 @@ export default function StudentsPage() {
                   placeholder="student@college.edu"
                   value={newStudent.email}
                   onChange={(e) => setNewStudent(prev => ({ ...prev, email: e.target.value }))}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                 />
               </div>
 
               <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    setAddError(null);
+                  }}
                   className="px-4 py-2 rounded-xl text-slate-600 font-bold text-xs hover:bg-slate-100"
                 >
                   Cancel
