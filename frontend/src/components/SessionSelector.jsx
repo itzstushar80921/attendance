@@ -9,7 +9,9 @@ import {
   BookMarked, 
   Check, 
   X,
-  Edit3
+  Edit3,
+  Users,
+  Building2
 } from 'lucide-react';
 import { api, DEFAULT_COURSES } from '../services/api';
 
@@ -20,7 +22,8 @@ export default function SessionSelector({
   onCoursesUpdated,
   availableBatches = ['B1', 'B2'],
   onStartSession,
-  isSessionActive
+  isSessionActive,
+  totalStudentsCount = 20
 }) {
   const [isCustomCourse, setIsCustomCourse] = useState(false);
   const [isAddingCourse, setIsAddingCourse] = useState(false);
@@ -45,7 +48,8 @@ export default function SessionSelector({
         setSessionConfig(prev => ({
           ...prev,
           course_code: courseList[0].code,
-          course_name: courseList[0].name
+          course_name: courseList[0].name,
+          semester: courseList[0].semester || prev.semester
         }));
       }
     }
@@ -83,7 +87,8 @@ export default function SessionSelector({
       setSessionConfig(prev => ({
         ...prev,
         course_code: selected.code,
-        course_name: selected.name
+        course_name: selected.name,
+        semester: selected.semester || prev.semester
       }));
     }
   };
@@ -111,7 +116,8 @@ export default function SessionSelector({
         setSessionConfig(prev => ({
           ...prev,
           course_code: newCourseForm.code.toUpperCase(),
-          course_name: newCourseForm.name
+          course_name: newCourseForm.name,
+          semester: newCourseForm.semester
         }));
         setIsAddingCourse(false);
         setIsCustomCourse(false);
@@ -137,6 +143,19 @@ export default function SessionSelector({
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
       
+      {/* College Banner Header */}
+      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white p-3.5 sm:p-4 border-b border-indigo-950 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-indigo-300" />
+          <span className="font-extrabold text-xs sm:text-sm tracking-wide">
+            Government Engineering College, Bokaro
+          </span>
+        </div>
+        <span className="text-[10px] font-bold uppercase tracking-wider bg-white/10 px-2 py-0.5 rounded-full text-indigo-200">
+          Faculty Session Setup
+        </span>
+      </div>
+
       {/* Step 1: Class Type Segmented Switcher */}
       <div className="p-4 sm:p-5 border-b border-slate-100">
         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
@@ -174,11 +193,11 @@ export default function SessionSelector({
         <div className="mt-2 text-xs flex items-center justify-between text-slate-500">
           <span>
             {sessionConfig.class_type === 'lecture' 
-              ? '📚 Full cohort lecture attendance' 
-              : '🔬 Lab batch practical session attendance'}
+              ? '📚 Full class cohort lecture attendance' 
+              : '🔬 Practical lab batch attendance'}
           </span>
           <span className="font-semibold text-indigo-600">
-            {sessionConfig.class_type === 'lab' ? 'Lab Batch Filter Active' : 'Section-wide'}
+            {sessionConfig.class_type === 'lab' ? 'Lab Batch Filter Active' : 'Cohort Attendance'}
           </span>
         </div>
       </div>
@@ -222,7 +241,7 @@ export default function SessionSelector({
               >
                 {courseList.map(course => (
                   <option key={course.code} value={course.code}>
-                    {course.code} — {course.name}
+                    {course.code} — {course.name} ({course.department ? `${course.department}, ` : ''}Sem {course.semester || 5})
                   </option>
                 ))}
               </select>
@@ -231,20 +250,43 @@ export default function SessionSelector({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <input
                 type="text"
-                placeholder="Code (e.g. CS501)"
+                placeholder="Code (e.g. DCD01)"
                 value={sessionConfig.course_code}
                 onChange={(e) => setSessionConfig(prev => ({ ...prev, course_code: e.target.value.toUpperCase() }))}
                 className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-800 uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
               />
               <input
                 type="text"
-                placeholder="Course Title (e.g. Advanced Operating Systems)"
+                placeholder="Course Title (e.g. Digital Circuital Design)"
                 value={sessionConfig.course_name}
                 onChange={(e) => setSessionConfig(prev => ({ ...prev, course_name: e.target.value }))}
                 className="sm:col-span-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
               />
             </div>
           )}
+        </div>
+
+        {/* Cohort / Student Roster Filter Selector */}
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1 flex items-center gap-1.5">
+            <Users className="w-3.5 h-3.5 text-indigo-600" />
+            Class Cohort to Load for Attendance
+          </label>
+          <select
+            value={sessionConfig.student_cohort || 'all'}
+            onChange={(e) => setSessionConfig(prev => ({ ...prev, student_cohort: e.target.value }))}
+            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="all">All Enrolled Students (All {totalStudentsCount} GEC Bokaro Students)</option>
+            <option value="5">Semester 5 Students (CS & VLSI)</option>
+            <option value="1">Semester 1 Students</option>
+            <option value="3">Semester 3 Students</option>
+          </select>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {sessionConfig.student_cohort === 'all' || !sessionConfig.student_cohort
+              ? `✓ Will load all ${totalStudentsCount} enrolled students from GEC Bokaro roster`
+              : `Filtered for Semester ${sessionConfig.student_cohort} students`}
+          </p>
         </div>
 
         {/* Modal: Quick Add Course */}

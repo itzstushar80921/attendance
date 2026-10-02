@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import SessionSelector from '../components/SessionSelector';
 import AttendanceSheet from '../components/AttendanceSheet';
 import { api, DEFAULT_COURSES } from '../services/api';
-import { CheckCircle2, ArrowRight, RotateCcw, BookOpen, FlaskConical } from 'lucide-react';
+import { CheckCircle2, ArrowRight, RotateCcw, BookOpen, FlaskConical, Building2 } from 'lucide-react';
 
 export default function TakeAttendancePage({ onNavigateToReports }) {
   // Session Configuration State
@@ -14,6 +14,7 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
     time_slot: '09:00 AM - 10:00 AM',
     semester: 5,
     section: 'A',
+    student_cohort: 'all', // 'all', '1', '3', '5'
     lab_batch: 'All', // 'All', 'B1', 'B2', etc.
     topic_covered: '',
     location: 'LH-201',
@@ -22,6 +23,7 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
 
   const [courses, setCourses] = useState(DEFAULT_COURSES);
   const [students, setStudents] = useState([]);
+  const [activeSessionStudents, setActiveSessionStudents] = useState([]);
   const [availableBatches, setAvailableBatches] = useState(['B1', 'B2']);
   const [isSheetActive, setIsSheetActive] = useState(false);
   const [attendanceMap, setAttendanceMap] = useState({});
@@ -29,23 +31,24 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(null);
 
-  // Load available courses and predefined students
+  // Load available courses and ALL predefined students from GEC Bokaro database
   const loadInitialData = useCallback(async () => {
     try {
       const [courseRes, studentRes] = await Promise.all([
         api.getCourses(),
-        api.getStudents({ semester: 5, section: 'A' })
+        api.getStudents() // Fetch all students across all semesters
       ]);
 
       if (courseRes.success && Array.isArray(courseRes.data) && courseRes.data.length > 0) {
         setCourses(courseRes.data);
-        // Only set default course if current code is not in list
         const exists = courseRes.data.some(c => c.code === sessionConfig.course_code);
         if (!exists) {
+          const first = courseRes.data[0];
           setSessionConfig(prev => ({
             ...prev,
-            course_code: courseRes.data[0].code,
-            course_name: courseRes.data[0].name
+            course_code: first.code,
+            course_name: first.name,
+            semester: first.semester || 5
           }));
         }
       }
@@ -70,18 +73,38 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
 
   // When professor clicks "Load Attendance Sheet"
   const handleStartSession = () => {
-    // Determine relevant students
-    let applicableStudents = students;
+    let applicable = [...students];
+
+    // 1. Filter by cohort / semester if selected
+    if (sessionConfig.student_cohort && sessionConfig.student_cohort !== 'all') {
+      const semNum = parseInt(sessionConfig.student_cohort, 10);
+      const semFiltered = students.filter(s => s.semester === semNum);
+      // If students exist for this semester, use them; if not, fall back to all students so sheet is never empty!
+      if (semFiltered.length > 0) {
+        applicable = semFiltered;
+      }
+    }
+
+    // 2. Filter by lab batch if Lab class
     if (sessionConfig.class_type === 'lab' && sessionConfig.lab_batch !== 'All') {
-      applicableStudents = students.filter(s => s.lab_batch === sessionConfig.lab_batch);
+      const batchFiltered = applicable.filter(s => s.lab_batch === sessionConfig.lab_batch);
+      if (batchFiltered.length > 0) {
+        applicable = batchFiltered;
+      }
+    }
+
+    // If still empty (e.g. students haven't finished loading yet), use all students
+    if (applicable.length === 0 && students.length > 0) {
+      applicable = students;
     }
 
     // Default everyone to 'present' for fast mobile marking
     const initialMap = {};
-    applicableStudents.forEach(st => {
+    applicable.forEach(st => {
       initialMap[st.id] = 'present';
     });
 
+    setActiveSessionStudents(applicable);
     setAttendanceMap(initialMap);
     setRemarksMap({});
     setIsSheetActive(true);
@@ -93,9 +116,20 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
   // When a student's batch is edited on the card
   const handleStudentBatchChanged = (studentId, newBatch) => {
     setStudents(prev => prev.map(s => s.id === studentId ? { ...s, lab_batch: newBatch } : s));
+    setActiveSessionStudents(prev => prev.map(s => s.id === studentId ? { ...s, lab_batch: newBatch } : s));
     if (!availableBatches.includes(newBatch)) {
       setAvailableBatches(prev => [...prev, newBatch]);
     }
+  };
+
+  // Fallback to show all students
+  const handleShowAllStudents = () => {
+    setActiveSessionStudents(students);
+    const initialMap = {};
+    students.forEach(st => {
+      initialMap[st.id] = attendanceMap[st.id] || 'present';
+    });
+    setAttendanceMap(initialMap);
   };
 
   // Submit attendance to backend & Supabase
@@ -150,6 +184,19 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
   return (
     <div className="space-y-6">
       
+      {/* College Institutional Title */}
+      <div className="border-b border-slate-200 pb-3">
+        <div className="flex items-center gap-2">
+          <Building2 className="w-5 h-5 text-indigo-700" />
+          <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
+            Government Engineering College, Bokaro
+          </h2>
+        </div>
+        <p className="text-xs text-slate-500 font-semibold mt-0.5">
+          राजकीय अभियंत्रण महाविद्यालय, बोकारो • Faculty Mobile Attendance Portal
+        </p>
+      </div>
+
       {/* Submission Success Banner */}
       {submitSuccess && (
         <div className="bg-emerald-50 border-2 border-emerald-300 rounded-3xl p-6 shadow-xl animate-in zoom-in-95 duration-200">
@@ -202,11 +249,11 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
       {!isSheetActive ? (
         <div className="space-y-4">
           <div className="text-center sm:text-left max-w-xl">
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
               Take Class Attendance
-            </h2>
+            </h3>
             <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Select between Lecture or Practical Lab session, configure course and lab batches, and mark attendance with quick mobile taps.
+              Configure course, cohort, and lab batches, then tap below to mark student attendance.
             </p>
           </div>
 
@@ -218,11 +265,12 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
             availableBatches={availableBatches}
             onStartSession={handleStartSession}
             isSessionActive={isSheetActive}
+            totalStudentsCount={students.length}
           />
         </div>
       ) : (
         <AttendanceSheet
-          students={students}
+          students={activeSessionStudents.length > 0 ? activeSessionStudents : students}
           sessionConfig={sessionConfig}
           attendanceMap={attendanceMap}
           setAttendanceMap={setAttendanceMap}
@@ -233,6 +281,8 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
           onReset={() => setIsSheetActive(false)}
           availableBatches={availableBatches}
           onStudentBatchChanged={handleStudentBatchChanged}
+          onShowAllStudents={handleShowAllStudents}
+          totalAllStudentsCount={students.length}
         />
       )}
 

@@ -11,11 +11,13 @@ import {
   Check, 
   X, 
   Clock, 
-  AlertCircle 
+  AlertCircle,
+  Building2,
+  RefreshCw
 } from 'lucide-react';
 
 export default function AttendanceSheet({
-  students,
+  students = [],
   sessionConfig,
   attendanceMap,
   setAttendanceMap,
@@ -25,14 +27,16 @@ export default function AttendanceSheet({
   isSubmitting,
   onReset,
   availableBatches = ['B1', 'B2'],
-  onStudentBatchChanged
+  onStudentBatchChanged,
+  onShowAllStudents,
+  totalAllStudentsCount = 20
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [batchFilter, setBatchFilter] = useState('All');
 
   // Filter students based on lab batch and search
   const visibleStudents = useMemo(() => {
-    return students.filter(st => {
+    return (students || []).filter(st => {
       // If session is for a specific lab batch, enforce that
       if (sessionConfig.class_type === 'lab' && sessionConfig.lab_batch !== 'All') {
         if (st.lab_batch !== sessionConfig.lab_batch) return false;
@@ -98,9 +102,26 @@ export default function AttendanceSheet({
   // Compile dynamic filter batch options
   const filterBatchOptions = ['All', ...availableBatches.filter(b => b && b !== 'All')];
 
+  const handleResetFiltersAndShowAll = () => {
+    setSearchTerm('');
+    setBatchFilter('All');
+    if (onShowAllStudents) onShowAllStudents();
+  };
+
   return (
     <div className="space-y-4">
       
+      {/* College Institutional Badge */}
+      <div className="flex items-center justify-between text-xs text-slate-500 font-bold border-b border-slate-200 pb-2">
+        <span className="flex items-center gap-1.5 text-indigo-700">
+          <Building2 className="w-3.5 h-3.5" />
+          Government Engineering College, Bokaro
+        </span>
+        <span className="text-slate-400">
+          {sessionConfig.date}
+        </span>
+      </div>
+
       {/* Session Active Info Badge */}
       <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm ${
         sessionConfig.class_type === 'lab'
@@ -185,7 +206,8 @@ export default function AttendanceSheet({
             <button
               type="button"
               onClick={() => handleMarkAll('present')}
-              className="text-xs font-bold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all touch-press"
+              disabled={visibleStudents.length === 0}
+              className="text-xs font-bold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all touch-press disabled:opacity-50"
             >
               <CheckCheck className="w-3.5 h-3.5" />
               <span>All Present</span>
@@ -193,7 +215,8 @@ export default function AttendanceSheet({
             <button
               type="button"
               onClick={() => handleMarkAll('absent')}
-              className="text-xs font-bold bg-rose-100 text-rose-800 hover:bg-rose-200 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all touch-press"
+              disabled={visibleStudents.length === 0}
+              className="text-xs font-bold bg-rose-100 text-rose-800 hover:bg-rose-200 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all touch-press disabled:opacity-50"
             >
               <XCircle className="w-3.5 h-3.5" />
               <span>All Absent</span>
@@ -255,10 +278,25 @@ export default function AttendanceSheet({
       {/* Student List */}
       <div className="space-y-2 pb-24">
         {visibleStudents.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center">
-            <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <p className="text-sm font-bold text-slate-700">No students found for this batch/filter</p>
-            <p className="text-xs text-slate-500 mt-1">Check batch settings or clear search filters</p>
+          <div className="bg-white rounded-3xl border border-dashed border-indigo-200 p-8 sm:p-12 text-center space-y-3 shadow-xs">
+            <AlertCircle className="w-10 h-10 text-indigo-500 mx-auto" />
+            <div>
+              <p className="text-base font-bold text-slate-800">
+                No students currently in this specific batch or semester filter
+              </p>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                Government Engineering College, Bokaro has {totalAllStudentsCount} students enrolled in the database. Tap below to load all available students.
+              </p>
+            </div>
+            
+            <button
+              type="button"
+              onClick={handleResetFiltersAndShowAll}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-indigo-100 transition-all"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Load All GEC Bokaro Students ({totalAllStudentsCount})</span>
+            </button>
           </div>
         ) : (
           visibleStudents.map((student, idx) => (
@@ -288,7 +326,7 @@ export default function AttendanceSheet({
               sessionConfig.class_type === 'lab'
                 ? 'bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 active:scale-95 shadow-violet-300'
                 : 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 active:scale-95 shadow-indigo-300'
-            } ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+            } ${isSubmitting || visibleStudents.length === 0 ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
             <Send className="w-5 h-5" />
             <span>

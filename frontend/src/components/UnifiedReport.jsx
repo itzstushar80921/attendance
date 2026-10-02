@@ -111,11 +111,19 @@ export default function UnifiedReport() {
       s.overall.percentage >= 75 ? 'Eligible' : 'Attendance Shortage (<75%)'
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const csvLines = [
+      `"GOVERNMENT ENGINEERING COLLEGE, BOKARO - ATTENDANCE REPORT"`,
+      `"Generated on: ${new Date().toLocaleString('en-IN')}"`,
+      `"Report Period: ${selectedMonth === 'all' ? 'All Months' : selectedMonth}"`,
+      '',
+      headers.join(','),
+      ...rows.map(e => e.join(','))
+    ];
+    const csvContent = 'data:text/csv;charset=utf-8,' + csvLines.join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Attendance_Report_Sem5_${selectedMonth}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `GEC_Bokaro_Attendance_Report_${selectedMonth}_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -129,11 +137,14 @@ export default function UnifiedReport() {
       {/* Top Header & Export Action */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[10px] font-black uppercase tracking-wider border border-emerald-200 mb-1">
+            Government Engineering College, Bokaro
+          </div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
             Unified Attendance Reports
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
-            Semester 5 • Computer Science & Engineering • Lecture & Lab Consolidated
+            GEC Bokaro • Lecture & Lab Consolidated Attendance
           </p>
         </div>
 
