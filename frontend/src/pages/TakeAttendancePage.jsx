@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import SessionSelector from '../components/SessionSelector';
 import AttendanceSheet from '../components/AttendanceSheet';
-import { api } from '../services/api';
+import { api, DEFAULT_COURSES } from '../services/api';
 import { CheckCircle2, ArrowRight, RotateCcw, BookOpen, FlaskConical } from 'lucide-react';
 
 export default function TakeAttendancePage({ onNavigateToReports }) {
@@ -14,14 +14,15 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
     time_slot: '09:00 AM - 10:00 AM',
     semester: 5,
     section: 'A',
-    lab_batch: 'All', // 'All', 'B1', 'B2'
+    lab_batch: 'All', // 'All', 'B1', 'B2', etc.
     topic_covered: '',
     location: 'LH-201',
     professor_name: 'Dr. Robert Vance'
   });
 
-  const [courses, setCourses] = useState([]);
+  const [courses, setCourses] = useState(DEFAULT_COURSES);
   const [students, setStudents] = useState([]);
+  const [availableBatches, setAvailableBatches] = useState(['B1', 'B2']);
   const [isSheetActive, setIsSheetActive] = useState(false);
   const [attendanceMap, setAttendanceMap] = useState({});
   const [remarksMap, setRemarksMap] = useState({});
@@ -29,33 +30,43 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
   const [submitSuccess, setSubmitSuccess] = useState(null);
 
   // Load available courses and predefined students
-  useEffect(() => {
-    async function loadInitialData() {
-      try {
-        const [courseRes, studentRes] = await Promise.all([
-          api.getCourses(),
-          api.getStudents({ semester: 5, section: 'A' })
-        ]);
+  const loadInitialData = useCallback(async () => {
+    try {
+      const [courseRes, studentRes] = await Promise.all([
+        api.getCourses(),
+        api.getStudents({ semester: 5, section: 'A' })
+      ]);
 
-        if (courseRes.success && courseRes.data.length > 0) {
-          setCourses(courseRes.data);
-          const firstCourse = courseRes.data[0];
+      if (courseRes.success && Array.isArray(courseRes.data) && courseRes.data.length > 0) {
+        setCourses(courseRes.data);
+        // Only set default course if current code is not in list
+        const exists = courseRes.data.some(c => c.code === sessionConfig.course_code);
+        if (!exists) {
           setSessionConfig(prev => ({
             ...prev,
-            course_code: firstCourse.code,
-            course_name: firstCourse.name
+            course_code: courseRes.data[0].code,
+            course_name: courseRes.data[0].name
           }));
         }
-
-        if (studentRes.success) {
-          setStudents(studentRes.data);
-        }
-      } catch (err) {
-        console.error('Failed to load initial data:', err);
       }
+
+      if (studentRes.success && Array.isArray(studentRes.data)) {
+        setStudents(studentRes.data);
+        if (studentRes.batches && studentRes.batches.length > 0) {
+          setAvailableBatches(studentRes.batches);
+        } else {
+          const derived = [...new Set(studentRes.data.map(s => s.lab_batch).filter(Boolean))];
+          if (derived.length > 0) setAvailableBatches(derived);
+        }
+      }
+    } catch (err) {
+      console.warn('Notice loading initial data:', err.message);
     }
+  }, [sessionConfig.course_code]);
+
+  useEffect(() => {
     loadInitialData();
-  }, []);
+  }, [loadInitialData]);
 
   // When professor clicks "Load Attendance Sheet"
   const handleStartSession = () => {
@@ -65,7 +76,7 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
       applicableStudents = students.filter(s => s.lab_batch === sessionConfig.lab_batch);
     }
 
-    // Default everyone to 'present' for speed and convenience (professors usually just mark absentees)
+    // Default everyone to 'present' for fast mobile marking
     const initialMap = {};
     applicableStudents.forEach(st => {
       initialMap[st.id] = 'present';
@@ -76,8 +87,15 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
     setIsSheetActive(true);
     setSubmitSuccess(null);
 
-    // Scroll to top of sheet smoothly
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // When a student's batch is edited on the card
+  const handleStudentBatchChanged = (studentId, newBatch) => {
+    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, lab_batch: newBatch } : s));
+    if (!availableBatches.includes(newBatch)) {
+      setAvailableBatches(prev => [...prev, newBatch]);
+    }
   };
 
   // Submit attendance to backend & Supabase
@@ -150,7 +168,7 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
                   </span>
                 </div>
                 <h3 className="text-lg font-black text-slate-900 mt-0.5">
-                  Attendance Recorded Successfully!
+                  Attendance Recorded to Database!
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-600 mt-1">
                   <span className="font-bold text-emerald-700">{submitSuccess.present} Present</span> •{' '}
@@ -188,7 +206,7 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
               Take Class Attendance
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Select between Lecture or Practical Lab session, configure class details, and mark attendance with quick mobile taps.
+              Select between Lecture or Practical Lab session, configure course and lab batches, and mark attendance with quick mobile taps.
             </p>
           </div>
 
@@ -196,6 +214,8 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
             sessionConfig={sessionConfig}
             setSessionConfig={setSessionConfig}
             courses={courses}
+            onCoursesUpdated={loadInitialData}
+            availableBatches={availableBatches}
             onStartSession={handleStartSession}
             isSessionActive={isSheetActive}
           />
@@ -211,6 +231,8 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
           onSubmit={handleSubmitAttendance}
           isSubmitting={isSubmitting}
           onReset={() => setIsSheetActive(false)}
+          availableBatches={availableBatches}
+          onStudentBatchChanged={handleStudentBatchChanged}
         />
       )}
 

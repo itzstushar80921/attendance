@@ -1,13 +1,56 @@
-import React from 'react';
-import { BookOpen, FlaskConical, Calendar, Clock, MapPin, Sparkles, BookMarked } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  BookOpen, 
+  FlaskConical, 
+  Calendar, 
+  Clock, 
+  Plus, 
+  Sparkles, 
+  BookMarked, 
+  Check, 
+  X,
+  Edit3
+} from 'lucide-react';
+import { api, DEFAULT_COURSES } from '../services/api';
 
 export default function SessionSelector({
   sessionConfig,
   setSessionConfig,
-  courses,
+  courses = [],
+  onCoursesUpdated,
+  availableBatches = ['B1', 'B2'],
   onStartSession,
   isSessionActive
 }) {
+  const [isCustomCourse, setIsCustomCourse] = useState(false);
+  const [isAddingCourse, setIsAddingCourse] = useState(false);
+  const [newCourseForm, setNewCourseForm] = useState({
+    code: '',
+    name: '',
+    department: 'Computer Science & Engineering',
+    semester: 5,
+    has_lab: true
+  });
+  const [isAddingBatch, setIsAddingBatch] = useState(false);
+  const [customBatchInput, setCustomBatchInput] = useState('');
+
+  // Use courses passed in, or default fallback courses so it is NEVER blank
+  const courseList = courses && courses.length > 0 ? courses : DEFAULT_COURSES;
+
+  // Auto-sync sessionConfig course if empty or invalid
+  useEffect(() => {
+    if (!isCustomCourse && courseList.length > 0) {
+      const match = courseList.find(c => c.code === sessionConfig.course_code);
+      if (!match) {
+        setSessionConfig(prev => ({
+          ...prev,
+          course_code: courseList[0].code,
+          course_name: courseList[0].name
+        }));
+      }
+    }
+  }, [courseList, isCustomCourse, sessionConfig.course_code]);
+
   const lectureTimeSlots = [
     '09:00 AM - 10:00 AM',
     '10:00 AM - 11:00 AM',
@@ -29,31 +72,78 @@ export default function SessionSelector({
       class_type: type,
       time_slot: type === 'lab' ? labTimeSlots[2] : lectureTimeSlots[0],
       location: type === 'lab' ? 'CS Lab-3' : 'LH-201',
-      lab_batch: type === 'lab' ? 'B1' : 'All'
+      lab_batch: type === 'lab' ? (prev.lab_batch === 'All' ? 'B1' : prev.lab_batch) : 'All'
     }));
   };
 
-  const handleCourseChange = (e) => {
+  const handleCourseSelectChange = (e) => {
     const code = e.target.value;
-    const selected = courses.find(c => c.code === code);
-    setSessionConfig(prev => ({
-      ...prev,
-      course_code: code,
-      course_name: selected ? selected.name : code
-    }));
+    const selected = courseList.find(c => c.code === code);
+    if (selected) {
+      setSessionConfig(prev => ({
+        ...prev,
+        course_code: selected.code,
+        course_name: selected.name
+      }));
+    }
   };
+
+  const handleAddBatch = (e) => {
+    e.preventDefault();
+    if (!customBatchInput.trim()) return;
+    const clean = customBatchInput.trim().toUpperCase();
+    setSessionConfig(prev => ({ ...prev, lab_batch: clean }));
+    setCustomBatchInput('');
+    setIsAddingBatch(false);
+  };
+
+  const handleSaveNewCourse = async (e) => {
+    e.preventDefault();
+    if (!newCourseForm.code || !newCourseForm.name) {
+      alert('Please provide Course Code and Name');
+      return;
+    }
+
+    try {
+      const res = await api.addCourse(newCourseForm);
+      if (res.success) {
+        if (onCoursesUpdated) onCoursesUpdated();
+        setSessionConfig(prev => ({
+          ...prev,
+          course_code: newCourseForm.code.toUpperCase(),
+          course_name: newCourseForm.name
+        }));
+        setIsAddingCourse(false);
+        setIsCustomCourse(false);
+        setNewCourseForm({
+          code: '',
+          name: '',
+          department: 'Computer Science & Engineering',
+          semester: 5,
+          has_lab: true
+        });
+      }
+    } catch (err) {
+      alert('Failed to save course: ' + err.message);
+    }
+  };
+
+  // Compile batch options: 'All', plus all registered batches, plus current selected batch if custom
+  const allBatches = Array.from(new Set([
+    ...availableBatches,
+    sessionConfig.lab_batch
+  ].filter(b => b && b !== 'All')));
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
       
-      {/* Top Header: Class Type Segmented Switcher */}
+      {/* Step 1: Class Type Segmented Switcher */}
       <div className="p-4 sm:p-5 border-b border-slate-100">
         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
           Step 1: Select Class Type
         </label>
         
         <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-xl">
-          {/* Lecture Option */}
           <button
             type="button"
             onClick={() => handleClassTypeChange('lecture')}
@@ -67,7 +157,6 @@ export default function SessionSelector({
             <span>Lecture Session</span>
           </button>
 
-          {/* Lab Option */}
           <button
             type="button"
             onClick={() => handleClassTypeChange('lab')}
@@ -89,7 +178,7 @@ export default function SessionSelector({
               : '🔬 Lab batch practical session attendance'}
           </span>
           <span className="font-semibold text-indigo-600">
-            {sessionConfig.class_type === 'lab' ? 'Lab Division Enabled' : 'Section-wide'}
+            {sessionConfig.class_type === 'lab' ? 'Lab Batch Filter Active' : 'Section-wide'}
           </span>
         </div>
       </div>
@@ -97,52 +186,202 @@ export default function SessionSelector({
       {/* Session Details Form */}
       <div className="p-4 sm:p-5 space-y-4">
         
-        {/* Course Selection */}
+        {/* Course / Subject Selection & Custom Toggle */}
         <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-            Course / Subject
-          </label>
-          <div className="relative">
-            <select
-              value={sessionConfig.course_code}
-              onChange={handleCourseChange}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all appearance-none"
-            >
-              {courses.map(course => (
-                <option key={course.code} value={course.code}>
-                  {course.code} — {course.name}
-                </option>
-              ))}
-            </select>
-            <BookMarked className="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none" />
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+              <BookMarked className="w-3.5 h-3.5 text-indigo-600" />
+              Course / Subject
+            </label>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsCustomCourse(!isCustomCourse)}
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+              >
+                <Edit3 className="w-3 h-3" />
+                <span>{isCustomCourse ? 'Select from Roster' : 'Type Custom Code'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAddingCourse(true)}
+                className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100"
+              >
+                <Plus className="w-3 h-3" />
+                <span>New Course</span>
+              </button>
+            </div>
           </div>
+
+          {!isCustomCourse ? (
+            <div className="relative">
+              <select
+                value={sessionConfig.course_code}
+                onChange={handleCourseSelectChange}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-3 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-xs"
+              >
+                {courseList.map(course => (
+                  <option key={course.code} value={course.code}>
+                    {course.code} — {course.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input
+                type="text"
+                placeholder="Code (e.g. CS501)"
+                value={sessionConfig.course_code}
+                onChange={(e) => setSessionConfig(prev => ({ ...prev, course_code: e.target.value.toUpperCase() }))}
+                className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-800 uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+              />
+              <input
+                type="text"
+                placeholder="Course Title (e.g. Advanced Operating Systems)"
+                value={sessionConfig.course_name}
+                onChange={(e) => setSessionConfig(prev => ({ ...prev, course_name: e.target.value }))}
+                className="sm:col-span-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+              />
+            </div>
+          )}
         </div>
 
-        {/* Lab Batch Selection (Shown only when class_type === 'lab') */}
+        {/* Modal: Quick Add Course */}
+        {isAddingCourse && (
+          <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-4 animate-in fade-in duration-150 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-extrabold uppercase text-indigo-900 flex items-center gap-1.5">
+                <Plus className="w-3.5 h-3.5 text-indigo-600" /> Add Course to Database
+              </h4>
+              <button
+                type="button"
+                onClick={() => setIsAddingCourse(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="text"
+                placeholder="Course Code (e.g. CS506)"
+                value={newCourseForm.code}
+                onChange={(e) => setNewCourseForm(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 uppercase"
+              />
+              <input
+                type="text"
+                placeholder="Course Title"
+                value={newCourseForm.name}
+                onChange={(e) => setNewCourseForm(prev => ({ ...prev, name: e.target.value }))}
+                className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsAddingCourse(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewCourse}
+                className="px-4 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-sm"
+              >
+                Save Course
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Lab Batch Selection (Dynamic & Editable by Professor) */}
         {sessionConfig.class_type === 'lab' && (
-          <div className="bg-violet-50/70 border border-violet-100 rounded-xl p-3.5">
-            <label className="block text-xs font-bold uppercase tracking-wider text-violet-900 mb-2">
-              Select Lab Batch Group
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {['B1', 'B2', 'All'].map(batch => (
+          <div className="bg-violet-50/70 border border-violet-100 rounded-xl p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-violet-900">
+                Select or Add Lab Batch Group
+              </label>
+              <span className="text-[11px] font-semibold text-violet-700">
+                Currently: Batch {sessionConfig.lab_batch}
+              </span>
+            </div>
+
+            {/* Batch Chips */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* All Batches Option */}
+              <button
+                type="button"
+                onClick={() => setSessionConfig(prev => ({ ...prev, lab_batch: 'All' }))}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                  sessionConfig.lab_batch === 'All'
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'bg-white text-violet-800 border border-violet-200 hover:bg-violet-100'
+                }`}
+              >
+                All Batches
+              </button>
+
+              {/* Dynamic Batches */}
+              {allBatches.map(batch => (
                 <button
                   key={batch}
                   type="button"
                   onClick={() => setSessionConfig(prev => ({ ...prev, lab_batch: batch }))}
-                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
                     sessionConfig.lab_batch === batch
                       ? 'bg-violet-600 text-white shadow-sm'
                       : 'bg-white text-violet-800 border border-violet-200 hover:bg-violet-100'
                   }`}
                 >
-                  {batch === 'All' ? 'All Batches' : `Batch ${batch}`}
+                  Batch {batch}
                 </button>
               ))}
+
+              {/* Add Custom Batch Button */}
+              {!isAddingBatch ? (
+                <button
+                  type="button"
+                  onClick={() => setIsAddingBatch(true)}
+                  className="py-1.5 px-2.5 rounded-lg text-xs font-bold bg-white text-violet-700 border border-dashed border-violet-300 hover:border-violet-500 hover:bg-violet-100 flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Custom Batch</span>
+                </button>
+              ) : (
+                <form onSubmit={handleAddBatch} className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Batch (e.g. B3, G1)"
+                    value={customBatchInput}
+                    onChange={(e) => setCustomBatchInput(e.target.value)}
+                    className="w-24 px-2 py-1 text-xs font-bold bg-white border border-violet-400 rounded-lg uppercase focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="p-1.5 bg-violet-600 text-white rounded-lg text-xs"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingBatch(false)}
+                    className="p-1.5 bg-slate-200 text-slate-600 rounded-lg text-xs"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </form>
+              )}
             </div>
-            <p className="text-[11px] text-violet-700 mt-2">
+
+            <p className="text-[11px] text-violet-700">
               {sessionConfig.lab_batch === 'All' 
-                ? 'Marking attendance for all students across both lab groups'
+                ? 'Marking attendance for all students across the entire cohort'
                 : `Filtered strictly for Batch ${sessionConfig.lab_batch} students`}
             </p>
           </div>

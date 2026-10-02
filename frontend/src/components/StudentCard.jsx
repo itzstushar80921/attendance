@@ -1,8 +1,20 @@
 import React, { useState } from 'react';
-import { Check, X, Clock, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { Check, X, Clock, MessageSquare, ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
+import { api } from '../services/api';
 
-export default function StudentCard({ student, status, onStatusChange, remarks, onRemarksChange, index }) {
+export default function StudentCard({ 
+  student, 
+  status, 
+  onStatusChange, 
+  remarks, 
+  onRemarksChange, 
+  index,
+  availableBatches = ['B1', 'B2'],
+  onBatchUpdated
+}) {
   const [showRemarks, setShowRemarks] = useState(false);
+  const [isEditingBatch, setIsEditingBatch] = useState(false);
+  const [selectedBatch, setSelectedBatch] = useState(student.lab_batch || 'B1');
 
   // Status button variants
   const getCardBorder = () => {
@@ -11,6 +23,20 @@ export default function StudentCard({ student, status, onStatusChange, remarks, 
       case 'absent': return 'border-rose-200 bg-rose-50/20 hover:border-rose-300';
       case 'late': return 'border-amber-200 bg-amber-50/20 hover:border-amber-300';
       default: return 'border-slate-200 bg-white';
+    }
+  };
+
+  const handleBatchSave = async (newBatch) => {
+    try {
+      const res = await api.updateStudentBatch(student.id, newBatch);
+      if (res.success) {
+        student.lab_batch = newBatch;
+        setSelectedBatch(newBatch);
+        setIsEditingBatch(false);
+        if (onBatchUpdated) onBatchUpdated(student.id, newBatch);
+      }
+    } catch (err) {
+      alert('Failed to update batch: ' + err.message);
     }
   };
 
@@ -28,10 +54,43 @@ export default function StudentCard({ student, status, onStatusChange, remarks, 
               <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
                 {student.roll_number}
               </span>
-              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                Batch {student.lab_batch}
-              </span>
+              
+              {/* Batch Pill with Inline Quick Edit */}
+              {!isEditingBatch ? (
+                <button
+                  type="button"
+                  onClick={() => setIsEditingBatch(true)}
+                  className="text-[10px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-1.5 py-0.5 rounded flex items-center gap-1 transition-all"
+                  title="Click to edit student lab batch"
+                >
+                  <span>Batch {student.lab_batch}</span>
+                  <Edit2 className="w-2.5 h-2.5 opacity-60" />
+                </button>
+              ) : (
+                <div className="flex items-center gap-1 bg-white border border-violet-300 p-0.5 rounded">
+                  <select
+                    value={selectedBatch}
+                    onChange={(e) => handleBatchSave(e.target.value)}
+                    className="text-[10px] font-bold text-violet-800 bg-transparent focus:outline-none"
+                    autoFocus
+                  >
+                    {availableBatches.map(b => (
+                      <option key={b} value={b}>Batch {b}</option>
+                    ))}
+                    <option value="B3">Batch B3</option>
+                    <option value="B4">Batch B4</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingBatch(false)}
+                    className="text-[9px] text-slate-400 hover:text-slate-600 px-0.5"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
             </div>
+            
             <h4 className="font-bold text-slate-900 text-sm truncate mt-0.5">
               {student.name}
             </h4>

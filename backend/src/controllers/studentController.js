@@ -1,7 +1,7 @@
 import { supabase, isSupabaseConfigured, mockDb } from '../config/supabase.js';
 
 /**
- * Controller for Student operations
+ * Controller for Student operations, Batches, and Course Management
  */
 export const studentController = {
   /**
@@ -26,7 +26,11 @@ export const studentController = {
 
         const { data, error } = await query;
         if (error) throw error;
-        return res.json({ success: true, count: data.length, data });
+
+        // Also extract distinct batches currently existing
+        const batches = [...new Set((data || []).map(s => s.lab_batch).filter(Boolean))].sort();
+
+        return res.json({ success: true, count: data.length, batches, data });
       }
 
       // Mock database fallback
@@ -40,7 +44,9 @@ export const studentController = {
       }
 
       list.sort((a, b) => a.roll_number.localeCompare(b.roll_number));
-      return res.json({ success: true, count: list.length, data: list });
+      const batches = [...new Set(mockDb.students.map(s => s.lab_batch).filter(Boolean))].sort();
+
+      return res.json({ success: true, count: list.length, batches, data: list });
     } catch (err) {
       next(err);
     }
@@ -117,7 +123,118 @@ export const studentController = {
   },
 
   /**
-   * Get available courses
+   * Update student's batch group (Professor customized batch)
+   */
+  async updateStudentBatch(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { lab_batch } = req.body;
+
+      if (!lab_batch) {
+        return res.status(400).json({ success: false, message: 'lab_batch is required' });
+      }
+
+      const cleanBatch = lab_batch.trim().toUpperCase();
+
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+          .from('students')
+          .update({ lab_batch: cleanBatch, updated_at: new Date().toISOString() })
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (error) throw error;
+        return res.json({ success: true, message: `Batch updated to ${cleanBatch}`, data });
+      }
+
+      const student = mockDb.students.find(s => s.id === id || s.roll_number === id);
+      if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+
+      student.lab_batch = cleanBatch;
+      return res.json({ success: true, message: `Batch updated to ${cleanBatch}`, data: student });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Bulk assign batch to multiple students
+   */
+  async bulkUpdateBatches(req, res, next) {
+    try {
+      const { student_ids, lab_batch } = req.body;
+
+      if (!Array.isArray(student_ids) || student_ids.length === 0 || !lab_batch) {
+        return res.status(400).json({ success: false, message: 'student_ids array and lab_batch are required' });
+      }
+
+      const cleanBatch = lab_batch.trim().toUpperCase();
+
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+          .from('students')
+          .update({ lab_batch: cleanBatch, updated_at: new Date().toISOString() })
+          .in('id', student_ids)
+          .select();
+
+        if (error) throw error;
+        return res.json({ success: true, message: `${student_ids.length} students reassigned to Batch ${cleanBatch}`, count: data.length });
+      }
+
+      mockDb.students.forEach(st => {
+        if (student_ids.includes(st.id)) {
+          st.lab_batch = cleanBatch;
+        }
+      });
+
+      return res.json({ success: true, message: `${student_ids.length} students reassigned to Batch ${cleanBatch}`, count: student_ids.length });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Rename an entire batch (e.g. B1 -> Group-A)
+   */
+  async renameBatch(req, res, next) {
+    try {
+      const { old_batch, new_batch } = req.body;
+
+      if (!old_batch || !new_batch) {
+        return res.status(400).json({ success: false, message: 'old_batch and new_batch are required' });
+      }
+
+      const cleanOld = old_batch.trim().toUpperCase();
+      const cleanNew = new_batch.trim().toUpperCase();
+
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+          .from('students')
+          .update({ lab_batch: cleanNew, updated_at: new Date().toISOString() })
+          .eq('lab_batch', cleanOld)
+          .select();
+
+        if (error) throw error;
+        return res.json({ success: true, message: `Batch ${cleanOld} renamed to ${cleanNew}`, updatedCount: data.length });
+      }
+
+      let count = 0;
+      mockDb.students.forEach(st => {
+        if (st.lab_batch === cleanOld) {
+          st.lab_batch = cleanNew;
+          count++;
+        }
+      });
+
+      return res.json({ success: true, message: `Batch ${cleanOld} renamed to ${cleanNew}`, updatedCount: count });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Get available courses (with fail-safe fallback courses)
    */
   async getCourses(req, res, next) {
     try {
@@ -128,10 +245,96 @@ export const studentController = {
           .order('code', { ascending: true });
 
         if (error) throw error;
-        return res.json({ success: true, data });
+
+        // If table is completely empty, populate standard default courses into Supabase
+        if (!data || data.length === 0) {
+          const defaults = [
+            { code: 'CS501', name: 'Database Management Systems', department: 'Computer Science & Engineering', semester: 5, credits: 4, has_lab: true },
+            { code: 'CS502', name: 'Operating Systems', department: 'Computer Science & Engineering', semester: 5, credits: 4, has_lab: true },
+            { code: 'CS503', name: 'Computer Networks', department: 'Computer Science & Engineering', semester: 5, credits: 4, has_lab: true },
+            { code: 'CS504', name: 'Design & Analysis of Algorithms', department: 'Computer Science & Engineering', semester: 5, credits: 4, has_lab: false },
+            { code: 'CS505', name: 'Web Technologies & Cloud Computing', department: 'Computer Science & Engineering', semester: 5, credits: 3, has_lab: true }
+          ];
+          await supabase.from('courses').upsert(defaults, { onConflict: 'code' });
+          return res.json({ success: true, count: defaults.length, data: defaults });
+        }
+
+        return res.json({ success: true, count: data.length, data });
       }
 
-      return res.json({ success: true, data: mockDb.courses });
+      return res.json({ success: true, count: mockDb.courses.length, data: mockDb.courses });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Add a new course
+   */
+  async createCourse(req, res, next) {
+    try {
+      const { code, name, department, semester, credits, has_lab } = req.body;
+
+      if (!code || !name) {
+        return res.status(400).json({ success: false, message: 'Course code and name are required' });
+      }
+
+      const courseData = {
+        code: code.trim().toUpperCase(),
+        name: name.trim(),
+        department: department || 'Computer Science & Engineering',
+        semester: semester ? parseInt(semester, 10) : 5,
+        credits: credits ? parseInt(credits, 10) : 4,
+        has_lab: has_lab !== undefined ? Boolean(has_lab) : true
+      };
+
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+          .from('courses')
+          .upsert([courseData], { onConflict: 'code' })
+          .select()
+          .single();
+
+        if (error) throw error;
+        return res.status(201).json({ success: true, data });
+      }
+
+      const existingIdx = mockDb.courses.findIndex(c => c.code === courseData.code);
+      if (existingIdx >= 0) {
+        mockDb.courses[existingIdx] = { ...mockDb.courses[existingIdx], ...courseData };
+      } else {
+        mockDb.courses.push({ id: `c-${Date.now()}`, ...courseData });
+      }
+
+      return res.status(201).json({ success: true, data: courseData });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Delete course (by UUID or code)
+   */
+  async deleteCourse(req, res, next) {
+    try {
+      const { id } = req.params;
+
+      if (isSupabaseConfigured) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        let query = supabase.from('courses').delete();
+        if (isUuid) {
+          query = query.eq('id', id);
+        } else {
+          query = query.eq('code', id.toUpperCase());
+        }
+
+        const { error } = await query;
+        if (error) throw error;
+        return res.json({ success: true, message: 'Course deleted successfully' });
+      }
+
+      mockDb.courses = mockDb.courses.filter(c => c.id !== id && c.code !== id);
+      return res.json({ success: true, message: 'Course deleted successfully' });
     } catch (err) {
       next(err);
     }

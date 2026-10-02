@@ -23,12 +23,14 @@ export default function AttendanceSheet({
   setRemarksMap,
   onSubmit,
   isSubmitting,
-  onReset
+  onReset,
+  availableBatches = ['B1', 'B2'],
+  onStudentBatchChanged
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [batchFilter, setBatchFilter] = useState('All');
 
-  // Filter students based on lab batch (if lab session is configured for specific batch) and search
+  // Filter students based on lab batch and search
   const visibleStudents = useMemo(() => {
     return students.filter(st => {
       // If session is for a specific lab batch, enforce that
@@ -93,6 +95,9 @@ export default function AttendanceSheet({
     }));
   };
 
+  // Compile dynamic filter batch options
+  const filterBatchOptions = ['All', ...availableBatches.filter(b => b && b !== 'All')];
+
   return (
     <div className="space-y-4">
       
@@ -103,13 +108,13 @@ export default function AttendanceSheet({
           : 'bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-200'
       }`}>
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-xs uppercase font-extrabold px-2.5 py-0.5 rounded-full ${
               sessionConfig.class_type === 'lab'
                 ? 'bg-violet-600 text-white'
                 : 'bg-indigo-600 text-white'
             }`}>
-              {sessionConfig.class_type.toUpperCase()} SESSION
+              {sessionConfig.class_type.toUpperCase()} SESSION {sessionConfig.class_type === 'lab' ? `• BATCH ${sessionConfig.lab_batch}` : ''}
             </span>
             <span className="text-xs font-semibold text-slate-600">
               {sessionConfig.date} • {sessionConfig.time_slot}
@@ -224,17 +229,17 @@ export default function AttendanceSheet({
         </div>
 
         {/* Lab batch filter (when session is 'All' batches) */}
-        {sessionConfig.class_type === 'lecture' && (
-          <div className="flex items-center gap-1 shrink-0 bg-white border border-slate-200 p-1 rounded-xl shadow-sm">
+        {sessionConfig.lab_batch === 'All' && (
+          <div className="flex items-center gap-1 shrink-0 bg-white border border-slate-200 p-1 rounded-xl shadow-sm overflow-x-auto">
             <span className="text-xs font-bold text-slate-500 px-2 flex items-center gap-1">
               <Filter className="w-3 h-3" /> Batch:
             </span>
-            {['All', 'B1', 'B2'].map(b => (
+            {filterBatchOptions.map(b => (
               <button
                 key={b}
                 type="button"
                 onClick={() => setBatchFilter(b)}
-                className={`text-xs px-2.5 py-1 rounded-lg font-bold transition-all ${
+                className={`text-xs px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 ${
                   batchFilter === b
                     ? 'bg-indigo-600 text-white'
                     : 'text-slate-600 hover:bg-slate-100'
@@ -252,8 +257,8 @@ export default function AttendanceSheet({
         {visibleStudents.length === 0 ? (
           <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center">
             <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <p className="text-sm font-bold text-slate-700">No students found</p>
-            <p className="text-xs text-slate-500 mt-1">Try resetting search or batch filters</p>
+            <p className="text-sm font-bold text-slate-700">No students found for this batch/filter</p>
+            <p className="text-xs text-slate-500 mt-1">Check batch settings or clear search filters</p>
           </div>
         ) : (
           visibleStudents.map((student, idx) => (
@@ -265,6 +270,8 @@ export default function AttendanceSheet({
               onStatusChange={handleStatusChange}
               remarks={remarksMap[student.id] || ''}
               onRemarksChange={handleRemarksChange}
+              availableBatches={availableBatches}
+              onBatchUpdated={onStudentBatchChanged}
             />
           ))
         )}

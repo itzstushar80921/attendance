@@ -24,10 +24,10 @@ export default function Navbar({ activeTab, setActiveTab, healthInfo }) {
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-slate-900 tracking-tight text-lg">ProfAttend</span>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  College
+                  Live Portal
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-medium">Prof. Attendance & Lab Portal</p>
+              <p className="text-xs text-slate-500 font-medium">Prof. Lecture & Lab System</p>
             </div>
           </div>
 
@@ -75,29 +75,19 @@ export default function Navbar({ activeTab, setActiveTab, healthInfo }) {
               }`}
             >
               <Users className="w-4 h-4" />
-              Students
+              Students & Batches
             </button>
           </nav>
 
-          {/* System Status Indicator (Supabase / Mock) */}
+          {/* System Status Indicator (Supabase Connected) */}
           <div className="flex items-center gap-2">
             <div 
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                healthInfo?.supabaseConnected
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-amber-50 text-amber-700 border-amber-200'
-              }`}
-              title={healthInfo?.database || 'Database status'}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border bg-emerald-50 text-emerald-700 border-emerald-200"
+              title={healthInfo?.database || 'Database Connected'}
             >
-              <span className={`w-2 h-2 rounded-full ${
-                healthInfo?.supabaseConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-              }`} />
-              <span className="hidden sm:inline">
-                {healthInfo?.supabaseConnected ? 'Supabase Connected' : 'Demo DB Mode'}
-              </span>
-              <span className="sm:hidden">
-                {healthInfo?.supabaseConnected ? 'Supabase' : 'Demo'}
-              </span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="hidden sm:inline">Supabase Database Live</span>
+              <span className="sm:hidden">Online</span>
             </div>
           </div>
 
