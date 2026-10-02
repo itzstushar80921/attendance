@@ -1,0 +1,43 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Backend (Express + Supabase)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "attendance"
+      }
+    },
+    {
+      "label": "Start Frontend (Vite + React)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "attendance"
+      }
+    },
+    {
+      "label": "Start Fullstack Attendance System",
+      "dependsOn": [
+        "Start Backend (Express + Supabase)",
+        "Start Frontend (Vite + React)"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

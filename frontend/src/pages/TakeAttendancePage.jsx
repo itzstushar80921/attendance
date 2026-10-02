@@ -1,0 +1,219 @@
+import React, { useState, useEffect } from 'react';
+import SessionSelector from '../components/SessionSelector';
+import AttendanceSheet from '../components/AttendanceSheet';
+import { api } from '../services/api';
+import { CheckCircle2, ArrowRight, RotateCcw, BookOpen, FlaskConical } from 'lucide-react';
+
+export default function TakeAttendancePage({ onNavigateToReports }) {
+  // Session Configuration State
+  const [sessionConfig, setSessionConfig] = useState({
+    class_type: 'lecture', // 'lecture' or 'lab'
+    course_code: 'CS501',
+    course_name: 'Database Management Systems',
+    date: new Date().toISOString().split('T')[0],
+    time_slot: '09:00 AM - 10:00 AM',
+    semester: 5,
+    section: 'A',
+    lab_batch: 'All', // 'All', 'B1', 'B2'
+    topic_covered: '',
+    location: 'LH-201',
+    professor_name: 'Dr. Robert Vance'
+  });
+
+  const [courses, setCourses] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [isSheetActive, setIsSheetActive] = useState(false);
+  const [attendanceMap, setAttendanceMap] = useState({});
+  const [remarksMap, setRemarksMap] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(null);
+
+  // Load available courses and predefined students
+  useEffect(() => {
+    async function loadInitialData() {
+      try {
+        const [courseRes, studentRes] = await Promise.all([
+          api.getCourses(),
+          api.getStudents({ semester: 5, section: 'A' })
+        ]);
+
+        if (courseRes.success && courseRes.data.length > 0) {
+          setCourses(courseRes.data);
+          const firstCourse = courseRes.data[0];
+          setSessionConfig(prev => ({
+            ...prev,
+            course_code: firstCourse.code,
+            course_name: firstCourse.name
+          }));
+        }
+
+        if (studentRes.success) {
+          setStudents(studentRes.data);
+        }
+      } catch (err) {
+        console.error('Failed to load initial data:', err);
+      }
+    }
+    loadInitialData();
+  }, []);
+
+  // When professor clicks "Load Attendance Sheet"
+  const handleStartSession = () => {
+    // Determine relevant students
+    let applicableStudents = students;
+    if (sessionConfig.class_type === 'lab' && sessionConfig.lab_batch !== 'All') {
+      applicableStudents = students.filter(s => s.lab_batch === sessionConfig.lab_batch);
+    }
+
+    // Default everyone to 'present' for speed and convenience (professors usually just mark absentees)
+    const initialMap = {};
+    applicableStudents.forEach(st => {
+      initialMap[st.id] = 'present';
+    });
+
+    setAttendanceMap(initialMap);
+    setRemarksMap({});
+    setIsSheetActive(true);
+    setSubmitSuccess(null);
+
+    // Scroll to top of sheet smoothly
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Submit attendance to backend & Supabase
+  const handleSubmitAttendance = async () => {
+    try {
+      setIsSubmitting(true);
+
+      // 1. Create the attendance session in the DB
+      const sessionRes = await api.createSession(sessionConfig);
+      if (!sessionRes.success) {
+        throw new Error(sessionRes.message || 'Failed to create session');
+      }
+
+      const createdSession = sessionRes.data;
+
+      // 2. Prepare bulk attendance records
+      const recordsToSubmit = Object.entries(attendanceMap).map(([studentId, status]) => ({
+        student_id: studentId,
+        status,
+        remarks: remarksMap[studentId] || null
+      }));
+
+      // 3. Submit records
+      const attendanceRes = await api.submitAttendance(createdSession.id, recordsToSubmit);
+      if (!attendanceRes.success) {
+        throw new Error(attendanceRes.message || 'Failed to submit attendance records');
+      }
+
+      // Calculate stats for confirmation screen
+      const total = recordsToSubmit.length;
+      const present = recordsToSubmit.filter(r => r.status === 'present').length;
+      const late = recordsToSubmit.filter(r => r.status === 'late').length;
+      const absent = recordsToSubmit.filter(r => r.status === 'absent').length;
+
+      setSubmitSuccess({
+        session: createdSession,
+        total,
+        present,
+        late,
+        absent,
+        percentage: total > 0 ? Math.round(((present + late) / total) * 100) : 0
+      });
+
+      setIsSheetActive(false);
+    } catch (err) {
+      alert('Error submitting attendance: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      
+      {/* Submission Success Banner */}
+      {submitSuccess && (
+        <div className="bg-emerald-50 border-2 border-emerald-300 rounded-3xl p-6 shadow-xl animate-in zoom-in-95 duration-200">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-200">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 justify-center sm:justify-start">
+                  <span className="text-xs uppercase font-extrabold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
+                    {submitSuccess.session.class_type.toUpperCase()} SAVED
+                  </span>
+                  <span className="text-xs text-emerald-800 font-semibold">
+                    {submitSuccess.session.date}
+                  </span>
+                </div>
+                <h3 className="text-lg font-black text-slate-900 mt-0.5">
+                  Attendance Recorded Successfully!
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 mt-1">
+                  <span className="font-bold text-emerald-700">{submitSuccess.present} Present</span> •{' '}
+                  <span className="font-bold text-rose-700">{submitSuccess.absent} Absent</span> •{' '}
+                  <span className="font-bold text-amber-700">{submitSuccess.late} Late</span>{' '}
+                  ({submitSuccess.percentage}% Rate)
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                onClick={() => setSubmitSuccess(null)}
+                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-xs sm:text-sm text-slate-700 hover:bg-slate-50 transition-all"
+              >
+                Mark Another
+              </button>
+              <button
+                onClick={onNavigateToReports}
+                className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-indigo-100 flex items-center justify-center gap-1.5 transition-all"
+              >
+                <span>View Reports</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Flow: Session Configurator OR Active Attendance Sheet */}
+      {!isSheetActive ? (
+        <div className="space-y-4">
+          <div className="text-center sm:text-left max-w-xl">
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+              Take Class Attendance
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
+              Select between Lecture or Practical Lab session, configure class details, and mark attendance with quick mobile taps.
+            </p>
+          </div>
+
+          <SessionSelector
+            sessionConfig={sessionConfig}
+            setSessionConfig={setSessionConfig}
+            courses={courses}
+            onStartSession={handleStartSession}
+            isSessionActive={isSheetActive}
+          />
+        </div>
+      ) : (
+        <AttendanceSheet
+          students={students}
+          sessionConfig={sessionConfig}
+          attendanceMap={attendanceMap}
+          setAttendanceMap={setAttendanceMap}
+          remarksMap={remarksMap}
+          setRemarksMap={setRemarksMap}
+          onSubmit={handleSubmitAttendance}
+          isSubmitting={isSubmitting}
+          onReset={() => setIsSheetActive(false)}
+        />
+      )}
+
+    </div>
+  );
+}
