@@ -135,7 +135,26 @@ export const api = {
     return handleResponse(res);
   },
 
-  // Sessions (Lecture vs Lab)
+  // Authentication
+  async studentLogin(rollNumber, password = '') {
+    const res = await fetch(`${API_BASE}/auth/student-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roll_number: rollNumber, password })
+    });
+    return handleResponse(res);
+  },
+
+  async professorLogin(emailOrId, password) {
+    const res = await fetch(`${API_BASE}/auth/professor-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_or_id: emailOrId, password })
+    });
+    return handleResponse(res);
+  },
+
+  // Sessions (Lecture vs Lab vs Extra Class)
   async createSession(sessionData) {
     const res = await fetch(`${API_BASE}/sessions`, {
       method: 'POST',
@@ -151,6 +170,9 @@ export const api = {
     if (params.course_code) query.append('course_code', params.course_code);
     if (params.semester) query.append('semester', params.semester);
     if (params.date) query.append('date', params.date);
+    if (params.is_extra_class !== undefined && params.is_extra_class !== null) {
+      query.append('is_extra_class', params.is_extra_class);
+    }
 
     const res = await fetch(`${API_BASE}/sessions?${query.toString()}`);
     return handleResponse(res);
@@ -199,8 +221,9 @@ export const api = {
     return handleResponse(res);
   },
 
-  async getStudentDetailedReport(studentId) {
-    const res = await fetch(`${API_BASE}/reports/student/${studentId}`);
+  async getStudentDetailedReport(studentId, semester = null) {
+    const query = semester ? `?semester=${semester}` : '';
+    const res = await fetch(`${API_BASE}/reports/student/${studentId}${query}`);
     return handleResponse(res);
   }
 };

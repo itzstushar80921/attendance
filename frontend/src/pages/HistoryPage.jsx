@@ -24,9 +24,13 @@ export default function HistoryPage() {
   const fetchSessions = async () => {
     try {
       setLoading(true);
-      const res = await api.getSessions({
-        class_type: filterType
-      });
+      const params = {};
+      if (filterType === 'extra') {
+        params.is_extra_class = true;
+      } else if (filterType !== 'all') {
+        params.class_type = filterType;
+      }
+      const res = await api.getSessions(params);
       if (res.success) {
         setSessions(res.data);
       }
@@ -109,6 +113,14 @@ export default function HistoryPage() {
           >
             Labs Only
           </button>
+          <button
+            onClick={() => setFilterType('extra')}
+            className={`px-3 py-1.5 rounded-lg transition-all ${
+              filterType === 'extra' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-600'
+            }`}
+          >
+            ⚡ Extra Classes
+          </button>
         </div>
       </div>
 
@@ -138,11 +150,18 @@ export default function HistoryPage() {
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className={`px-2.5 py-0.5 rounded-full uppercase font-black text-[10px] tracking-wide ${
-                      isLab ? 'bg-violet-100 text-violet-800' : 'bg-indigo-100 text-indigo-800'
-                    }`}>
-                      {sess.class_type} {isLab && sess.lab_batch ? `• Batch ${sess.lab_batch}` : ''}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-2.5 py-0.5 rounded-full uppercase font-black text-[10px] tracking-wide ${
+                        isLab ? 'bg-violet-100 text-violet-800' : 'bg-indigo-100 text-indigo-800'
+                      }`}>
+                        {sess.class_type} {isLab && sess.lab_batch ? `• Batch ${sess.lab_batch}` : ''}
+                      </span>
+                      {sess.is_extra_class && (
+                        <span className="px-2 py-0.5 rounded-full uppercase font-black text-[10px] tracking-wide bg-amber-100 text-amber-900 border border-amber-300">
+                          ⚡ Extra Class{sess.extra_reason ? `: ${sess.extra_reason}` : ''}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" />
                       {sess.date}

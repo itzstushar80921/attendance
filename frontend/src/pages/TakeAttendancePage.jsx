@@ -210,6 +210,11 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
                   <span className="text-xs uppercase font-extrabold bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full">
                     {submitSuccess.session.class_type.toUpperCase()} SAVED
                   </span>
+                  {submitSuccess.session.is_extra_class && (
+                    <span className="text-xs uppercase font-extrabold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300">
+                      EXTRA CLASS ({submitSuccess.session.extra_reason || 'REMEDIAL'})
+                    </span>
+                  )}
                   <span className="text-xs text-emerald-800 font-semibold">
                     {submitSuccess.session.date}
                   </span>

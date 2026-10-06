@@ -45,8 +45,14 @@ CREATE TABLE IF NOT EXISTS public.attendance_sessions (
     professor_name VARCHAR(100) NOT NULL DEFAULT 'Dr. Robert Vance',
     topic_covered TEXT,
     location VARCHAR(50), -- e.g. 'LH-204' or 'CS Lab-2'
+    is_extra_class BOOLEAN NOT NULL DEFAULT false, -- Flags remedial / extra classes
+    extra_reason VARCHAR(255), -- Reason: Syllabus Completion, Remedial, Backlog Lab
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Migration support for existing attendance_sessions table:
+-- ALTER TABLE public.attendance_sessions ADD COLUMN IF NOT EXISTS is_extra_class BOOLEAN DEFAULT false;
+-- ALTER TABLE public.attendance_sessions ADD COLUMN IF NOT EXISTS extra_reason VARCHAR(255);
 
 -- 4. Create Attendance Records Table
 -- References the specific session and student, recording present / absent / late

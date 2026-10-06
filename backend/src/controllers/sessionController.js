@@ -1,11 +1,32 @@
 import { supabase, isSupabaseConfigured, mockDb } from '../config/supabase.js';
 
 /**
- * Controller for Attendance Sessions (Lecture / Lab)
+ * Helper to normalize and attach extra class metadata
+ */
+export const formatSessionWithExtra = (s) => {
+  if (!s) return s;
+  const isExtra = Boolean(
+    s.is_extra_class === true || 
+    (typeof s.topic_covered === 'string' && s.topic_covered.includes('[EXTRA CLASS'))
+  );
+  let extraReason = s.extra_reason || null;
+  if (!extraReason && typeof s.topic_covered === 'string' && s.topic_covered.includes('[EXTRA CLASS:')) {
+    const match = s.topic_covered.match(/\[EXTRA CLASS:\s*([^\]]+)\]/);
+    if (match) extraReason = match[1].trim();
+  }
+  return {
+    ...s,
+    is_extra_class: isExtra,
+    extra_reason: extraReason
+  };
+};
+
+/**
+ * Controller for Attendance Sessions (Lecture / Lab / Extra Classes)
  */
 export const sessionController = {
   /**
-   * Create a new attendance session (Lecture or Lab)
+   * Create a new attendance session (Regular Lecture, Lab, or Extra Class)
    */
   async createSession(req, res, next) {
     try {
@@ -20,7 +41,9 @@ export const sessionController = {
         lab_batch,
         professor_name,
         topic_covered,
-        location
+        location,
+        is_extra_class,
+        extra_reason
       } = req.body;
 
       if (!class_type || !['lecture', 'lab'].includes(class_type)) {
@@ -37,6 +60,12 @@ export const sessionController = {
         });
       }
 
+      const isExtra = Boolean(is_extra_class);
+      let formattedTopic = topic_covered || '';
+      if (isExtra && !formattedTopic.includes('[EXTRA CLASS')) {
+        formattedTopic = `[EXTRA CLASS${extra_reason ? `: ${extra_reason}` : ''}] ${formattedTopic}`.trim();
+      }
+
       const sessionData = {
         class_type,
         course_code,
@@ -47,19 +76,42 @@ export const sessionController = {
         section: section || 'A',
         lab_batch: class_type === 'lab' ? (lab_batch || 'B1') : 'All',
         professor_name: professor_name || 'Dr. Robert Vance',
-        topic_covered: topic_covered || '',
+        topic_covered: formattedTopic,
         location: location || (class_type === 'lab' ? 'CS Lab' : 'LH-201')
       };
 
       if (isSupabaseConfigured) {
-        const { data, error } = await supabase
-          .from('attendance_sessions')
-          .insert([sessionData])
-          .select()
-          .single();
+        // Attempt insert with extra class fields if table has columns
+        let insertedData = null;
+        try {
+          const { data, error } = await supabase
+            .from('attendance_sessions')
+            .insert([{
+              ...sessionData,
+              is_extra_class: isExtra,
+              extra_reason: extra_reason || null
+            }])
+            .select()
+            .single();
+          if (!error && data) {
+            insertedData = data;
+          }
+        } catch (colErr) {
+          // Fallback to inserting sessionData without optional columns
+        }
 
-        if (error) throw error;
-        return res.status(201).json({ success: true, data });
+        if (!insertedData) {
+          const { data, error } = await supabase
+            .from('attendance_sessions')
+            .insert([sessionData])
+            .select()
+            .single();
+
+          if (error) throw error;
+          insertedData = data;
+        }
+
+        return res.status(201).json({ success: true, data: formatSessionWithExtra(insertedData) });
       }
 
       // Mock DB
@@ -67,22 +119,24 @@ export const sessionController = {
       const sessionWithId = {
         id: newId,
         ...sessionData,
+        is_extra_class: isExtra,
+        extra_reason: extra_reason || null,
         created_at: new Date().toISOString()
       };
       mockDb.sessions.unshift(sessionWithId);
 
-      return res.status(201).json({ success: true, data: sessionWithId });
+      return res.status(201).json({ success: true, data: formatSessionWithExtra(sessionWithId) });
     } catch (err) {
       next(err);
     }
   },
 
   /**
-   * Get sessions with optional class_type filter (lecture vs lab)
+   * Get sessions with optional class_type filter (lecture vs lab) and extra class filter
    */
   async getSessions(req, res, next) {
     try {
-      const { class_type, course_code, semester, date } = req.query;
+      const { class_type, course_code, semester, date, is_extra_class } = req.query;
 
       if (isSupabaseConfigured) {
         let query = supabase
@@ -100,17 +154,28 @@ export const sessionController = {
 
         const { data, error } = await query;
         if (error) throw error;
-        return res.json({ success: true, count: data.length, data });
+
+        let formatted = (data || []).map(formatSessionWithExtra);
+        if (is_extra_class !== undefined && is_extra_class !== null) {
+          const wantExtra = is_extra_class === 'true' || is_extra_class === true;
+          formatted = formatted.filter(s => s.is_extra_class === wantExtra);
+        }
+
+        return res.json({ success: true, count: formatted.length, data: formatted });
       }
 
       // Mock fallback
-      let list = [...mockDb.sessions];
+      let list = [...mockDb.sessions].map(formatSessionWithExtra);
       if (class_type && class_type !== 'all') {
         list = list.filter(s => s.class_type === class_type);
       }
       if (course_code) list = list.filter(s => s.course_code === course_code);
       if (semester) list = list.filter(s => s.semester === parseInt(semester, 10));
       if (date) list = list.filter(s => s.date === date);
+      if (is_extra_class !== undefined && is_extra_class !== null) {
+        const wantExtra = is_extra_class === 'true' || is_extra_class === true;
+        list = list.filter(s => s.is_extra_class === wantExtra);
+      }
 
       list.sort((a, b) => new Date(b.date) - new Date(a.date));
       return res.json({ success: true, count: list.length, data: list });
@@ -144,7 +209,7 @@ export const sessionController = {
 
         if (rErr) throw rErr;
 
-        return res.json({ success: true, data: { ...session, records: records || [] } });
+        return res.json({ success: true, data: { ...formatSessionWithExtra(session), records: records || [] } });
       }
 
       // Mock
@@ -168,7 +233,7 @@ export const sessionController = {
           };
         });
 
-      return res.json({ success: true, data: { ...session, records } });
+      return res.json({ success: true, data: { ...formatSessionWithExtra(session), records } });
     } catch (err) {
       next(err);
     }

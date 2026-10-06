@@ -141,7 +141,9 @@ export const reportController = {
             absent: totalConducted - totalAttended,
             percentage: overallPercentage
           },
-          is_low_attendance: overallPercentage < 75
+          is_low_attendance: overallPercentage < 75,
+          classes_needed_for_75: overallPercentage < 75 ? Math.max(0, Math.ceil(3 * totalConducted - 4 * totalAttended)) : 0,
+          classes_can_miss: overallPercentage >= 75 && totalConducted > 0 ? Math.max(0, Math.floor((4 * totalAttended - 3 * totalConducted) / 3)) : 0
         };
       });
 
@@ -238,22 +240,30 @@ export const reportController = {
       let sessions = [];
       let records = [];
 
+      const targetSemester = req.query.semester ? parseInt(req.query.semester, 10) : null;
+
       if (isSupabaseConfigured) {
-        const { data: stData, error: stErr } = await supabase
-          .from('students')
-          .select('*')
-          .eq('id', studentId)
-          .single();
+        let stQuery = supabase.from('students').select('*');
+        // Support lookup by UUID or roll_number
+        if (studentId.includes('-') && studentId.length > 20) {
+          stQuery = stQuery.eq('id', studentId);
+        } else {
+          stQuery = stQuery.eq('roll_number', studentId);
+        }
+
+        const { data: stData, error: stErr } = await stQuery.maybeSingle();
         if (stErr || !stData) {
-          return res.status(404).json({ success: false, message: 'Student not found' });
+          return res.status(404).json({ success: false, message: 'Student not found with identifier ' + studentId });
         }
         student = stData;
 
-        // Fetch all sessions for student's semester
+        const effectiveSemester = targetSemester || student.semester;
+
+        // Fetch all sessions for effective semester
         const { data: sessData, error: sessErr } = await supabase
           .from('attendance_sessions')
           .select('*')
-          .eq('semester', student.semester)
+          .eq('semester', effectiveSemester)
           .order('date', { ascending: false });
         if (sessErr) throw sessErr;
         sessions = sessData || [];
@@ -266,16 +276,18 @@ export const reportController = {
         if (recErr) throw recErr;
         records = recData || [];
       } else {
-        student = mockDb.students.find(s => s.id === studentId || s.roll_number === studentId);
+        student = mockDb.students.find(s => s.id === studentId || s.roll_number.toLowerCase() === studentId.toLowerCase());
         if (!student) {
-          return res.status(404).json({ success: false, message: 'Student not found' });
+          return res.status(404).json({ success: false, message: 'Student not found with identifier ' + studentId });
         }
+        const effectiveSemester = targetSemester || student.semester;
         sessions = mockDb.sessions
-          .filter(s => s.semester === student.semester)
+          .filter(s => s.semester === effectiveSemester)
           .sort((a, b) => new Date(b.date) - new Date(a.date));
         records = mockDb.records.filter(r => r.student_id === student.id);
       }
 
+      const effectiveSemester = targetSemester || student.semester;
       const recordMap = new Map();
       records.forEach(r => recordMap.set(r.session_id, r));
 
@@ -286,9 +298,19 @@ export const reportController = {
         return false;
       });
 
-      // Session-by-session history
+      // Session-by-session history with extra class metadata
       const history = applicableSessions.map(sess => {
         const rec = recordMap.get(sess.id);
+        const isExtra = Boolean(
+          sess.is_extra_class === true || 
+          (typeof sess.topic_covered === 'string' && sess.topic_covered.includes('[EXTRA CLASS'))
+        );
+        let extraReason = sess.extra_reason || null;
+        if (!extraReason && typeof sess.topic_covered === 'string' && sess.topic_covered.includes('[EXTRA CLASS:')) {
+          const match = sess.topic_covered.match(/\[EXTRA CLASS:\s*([^\]]+)\]/);
+          if (match) extraReason = match[1].trim();
+        }
+
         return {
           session_id: sess.id,
           class_type: sess.class_type,
@@ -298,6 +320,8 @@ export const reportController = {
           time_slot: sess.time_slot,
           location: sess.location,
           topic_covered: sess.topic_covered,
+          is_extra_class: isExtra,
+          extra_reason: extraReason,
           status: rec ? rec.status : 'unmarked',
           remarks: rec ? rec.remarks : null,
           marked_at: rec ? rec.marked_at : null
@@ -359,12 +383,96 @@ export const reportController = {
 
       const totalConducted = history.length;
       const totalAttended = lectureAttended + labAttended;
+      const overallPercentage = totalConducted > 0 ? Math.round((totalAttended / totalConducted) * 100) : 100;
+
+      // Regular vs Extra Class breakdown
+      const extraItems = history.filter(h => h.is_extra_class);
+      const regularItems = history.filter(h => !h.is_extra_class);
+      const extraAttended = extraItems.filter(h => h.status === 'present' || h.status === 'late').length;
+      const regularAttended = regularItems.filter(h => h.status === 'present' || h.status === 'late').length;
+
+      // Subject-wise Breakdown
+      const subjectMap = {};
+      history.forEach(item => {
+        const key = item.course_code;
+        if (!subjectMap[key]) {
+          subjectMap[key] = {
+            course_code: key,
+            course_name: item.course_name,
+            total_conducted: 0,
+            attended: 0,
+            absent: 0,
+            lecture_conducted: 0,
+            lecture_attended: 0,
+            lab_conducted: 0,
+            lab_attended: 0,
+            extra_conducted: 0,
+            extra_attended: 0
+          };
+        }
+        subjectMap[key].total_conducted++;
+        const isAttended = item.status === 'present' || item.status === 'late';
+        if (isAttended) subjectMap[key].attended++;
+        else subjectMap[key].absent++;
+
+        if (item.class_type === 'lecture') {
+          subjectMap[key].lecture_conducted++;
+          if (isAttended) subjectMap[key].lecture_attended++;
+        } else {
+          subjectMap[key].lab_conducted++;
+          if (isAttended) subjectMap[key].lab_attended++;
+        }
+
+        if (item.is_extra_class) {
+          subjectMap[key].extra_conducted++;
+          if (isAttended) subjectMap[key].extra_attended++;
+        }
+      });
+
+      const subjects = Object.values(subjectMap).map(subj => {
+        const pct = subj.total_conducted > 0 ? Math.round((subj.attended / subj.total_conducted) * 100) : 100;
+        const classesNeeded = (subj.total_conducted > 0 && pct < 75)
+          ? Math.max(0, Math.ceil(3 * subj.total_conducted - 4 * subj.attended))
+          : 0;
+        return {
+          ...subj,
+          percentage: pct,
+          is_eligible: pct >= 75,
+          classes_needed_for_75: classesNeeded
+        };
+      });
+
+      // 75% Attendance Safeguard / Target Calculator formula
+      // Condition: (Attended + X) / (Conducted + X) >= 0.75
+      // 0.25 * X >= 0.75 * Conducted - Attended  =>  X >= 3 * Conducted - 4 * Attended
+      const classesNeededFor75 = overallPercentage < 75 && totalConducted > 0
+        ? Math.max(0, Math.ceil(3 * totalConducted - 4 * totalAttended))
+        : 0;
+      
+      // If student is at or above 75%, how many classes can they safely miss?
+      // Attended / (Conducted + M) >= 0.75  =>  0.75 * M <= Attended - 0.75 * Conducted => M <= (4*Attended - 3*Conducted) / 3
+      const classesCanAffordToMiss = overallPercentage >= 75 && totalConducted > 0
+        ? Math.max(0, Math.floor((4 * totalAttended - 3 * totalConducted) / 3))
+        : 0;
 
       return res.json({
         success: true,
         student,
+        effectiveSemester,
+        target75Analysis: {
+          requiredPercentage: 75,
+          currentPercentage: overallPercentage,
+          isEligible: overallPercentage >= 75,
+          classesNeededFor75,
+          classesCanAffordToMiss,
+          totalConducted,
+          totalAttended,
+          statusMessage: overallPercentage >= 75
+            ? `Eligible: Attendance is ${overallPercentage}%. You can safely miss up to ${classesCanAffordToMiss} upcoming class${classesCanAffordToMiss === 1 ? '' : 'es'} while maintaining at least 75%.`
+            : `Warning: Attendance is ${overallPercentage}%. You need to attend the next ${classesNeededFor75} consecutive class${classesNeededFor75 === 1 ? '' : 'es'} without absence to reach the 75% requirement.`
+        },
         semesterSummary: {
-          semester: student.semester,
+          semester: effectiveSemester,
           lecture: {
             conducted: lectureItems.length,
             attended: lectureAttended,
@@ -381,10 +489,17 @@ export const reportController = {
             conducted: totalConducted,
             attended: totalAttended,
             absent: totalConducted - totalAttended,
-            percentage: totalConducted > 0 ? Math.round((totalAttended / totalConducted) * 100) : 100
+            percentage: overallPercentage
           },
-          is_low_attendance: totalConducted > 0 && Math.round((totalAttended / totalConducted) * 100) < 75
+          extraClasses: {
+            conducted: extraItems.length,
+            attended: extraAttended,
+            regularConducted: regularItems.length,
+            regularAttended: regularAttended
+          },
+          is_low_attendance: totalConducted > 0 && overallPercentage < 75
         },
+        subjects,
         monthlyBreakdown,
         history
       });
