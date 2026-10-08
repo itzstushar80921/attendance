@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import SessionSelector from '../components/SessionSelector';
 import AttendanceSheet from '../components/AttendanceSheet';
-import { api, DEFAULT_COURSES } from '../services/api';
+import { api, DEFAULT_COURSES, DEFAULT_STUDENTS } from '../services/api';
 import { CheckCircle2, ArrowRight, RotateCcw, BookOpen, FlaskConical, Building2 } from 'lucide-react';
 
 export default function TakeAttendancePage({ onNavigateToReports }) {
@@ -22,11 +22,17 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
   });
 
   const [courses, setCourses] = useState(DEFAULT_COURSES);
-  const [students, setStudents] = useState([]);
-  const [activeSessionStudents, setActiveSessionStudents] = useState([]);
+  const [students, setStudents] = useState(DEFAULT_STUDENTS);
+  const [activeSessionStudents, setActiveSessionStudents] = useState(DEFAULT_STUDENTS);
   const [availableBatches, setAvailableBatches] = useState(['B1', 'B2']);
-  const [isSheetActive, setIsSheetActive] = useState(false);
-  const [attendanceMap, setAttendanceMap] = useState({});
+  const [isSheetActive, setIsSheetActive] = useState(true);
+  const [attendanceMap, setAttendanceMap] = useState(() => {
+    const map = {};
+    DEFAULT_STUDENTS.forEach(st => {
+      map[st.id] = 'present';
+    });
+    return map;
+  });
   const [remarksMap, setRemarksMap] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(null);
@@ -53,8 +59,16 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
         }
       }
 
-      if (studentRes.success && Array.isArray(studentRes.data)) {
+      if (studentRes.success && Array.isArray(studentRes.data) && studentRes.data.length > 0) {
         setStudents(studentRes.data);
+        setActiveSessionStudents(studentRes.data);
+        setAttendanceMap(prev => {
+          const updated = { ...prev };
+          studentRes.data.forEach(st => {
+            if (!updated[st.id]) updated[st.id] = 'present';
+          });
+          return updated;
+        });
         if (studentRes.batches && studentRes.batches.length > 0) {
           setAvailableBatches(studentRes.batches);
         } else {
@@ -71,7 +85,7 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
     loadInitialData();
   }, [loadInitialData]);
 
-  // When professor clicks "Load Attendance Sheet"
+  // When professor clicks "Load Attendance Sheet" or switches session config
   const handleStartSession = () => {
     let applicable = [...students];
 
@@ -79,7 +93,6 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
     if (sessionConfig.student_cohort && sessionConfig.student_cohort !== 'all') {
       const semNum = parseInt(sessionConfig.student_cohort, 10);
       const semFiltered = students.filter(s => s.semester === semNum);
-      // If students exist for this semester, use them; if not, fall back to all students so sheet is never empty!
       if (semFiltered.length > 0) {
         applicable = semFiltered;
       }
@@ -93,20 +106,21 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
       }
     }
 
-    // If still empty (e.g. students haven't finished loading yet), use all students
+    // Fallback: If filter yields 0 students, keep all students so sheet is never empty!
     if (applicable.length === 0 && students.length > 0) {
       applicable = students;
     }
 
-    // Default everyone to 'present' for fast mobile marking
-    const initialMap = {};
-    applicable.forEach(st => {
-      initialMap[st.id] = 'present';
+    // Ensure status is initialized
+    setAttendanceMap(prev => {
+      const updated = { ...prev };
+      applicable.forEach(st => {
+        if (!updated[st.id]) updated[st.id] = 'present';
+      });
+      return updated;
     });
 
     setActiveSessionStudents(applicable);
-    setAttendanceMap(initialMap);
-    setRemarksMap({});
     setIsSheetActive(true);
     setSubmitSuccess(null);
 
@@ -124,6 +138,7 @@ export default function TakeAttendancePage({ onNavigateToReports }) {
 
   // Fallback to show all students
   const handleShowAllStudents = () => {
+    setSessionConfig(prev => ({ ...prev, lab_batch: 'All', student_cohort: 'all' }));
     setActiveSessionStudents(students);
     const initialMap = {};
     students.forEach(st => {

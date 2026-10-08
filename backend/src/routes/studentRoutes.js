@@ -9,6 +9,8 @@ router.get('/courses/all', studentController.getCourses);
 router.post('/courses', studentController.createCourse);
 router.delete('/courses/:id', studentController.deleteCourse);
 
+router.post('/bulk', studentController.bulkCreateStudents);
+router.post('/clean-demo-data', studentController.cleanDemoData);
 router.post('/bulk-batch', studentController.bulkUpdateBatches);
 router.post('/rename-batch', studentController.renameBatch);
 

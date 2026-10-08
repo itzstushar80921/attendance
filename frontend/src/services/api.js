@@ -51,29 +51,12 @@ async function handleResponse(response) {
   return response.json();
 }
 
-// Built-in standard students fallback for GEC Bokaro so login & student portal never fail
+// Built-in standard students registered for GEC Bokaro
 export const DEFAULT_STUDENTS = [
-  { id: 's01', roll_number: '2024CS001', name: 'Aarav Sharma', email: 'aarav.sharma@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's02', roll_number: '2024CS002', name: 'Aditi Verma', email: 'aditi.verma@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's03', roll_number: '2024CS003', name: 'Ananya Patel', email: 'ananya.patel@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's04', roll_number: '2024CS004', name: 'Aryan Mukherjee', email: 'aryan.m@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's05', roll_number: '2024CS005', name: 'Bhavya Nair', email: 'bhavya.nair@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's06', roll_number: '2024CS006', name: 'Chirag Joshi', email: 'chirag.j@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's07', roll_number: '2024CS007', name: 'Devansh Gupta', email: 'devansh.g@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's08', roll_number: '2024CS008', name: 'Diya Reddy', email: 'diya.reddy@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's09', roll_number: '2024CS009', name: 'Eshan Malhotra', email: 'eshan.m@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's10', roll_number: '2024CS010', name: 'Ishaan Sengupta', email: 'ishaan.s@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' },
-  { id: 's11', roll_number: '2024CS011', name: 'Kavya Iyer', email: 'kavya.iyer@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's12', roll_number: '2024CS012', name: 'Manish Kulkarni', email: 'manish.k@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's13', roll_number: '2024CS013', name: 'Meera Deshmukh', email: 'meera.d@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's14', roll_number: '2024CS014', name: 'Nikhil Choudhury', email: 'nikhil.c@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's15', roll_number: '2024CS015', name: 'Pooja Bhatt', email: 'pooja.b@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's16', roll_number: '2024CS016', name: 'Pranav Menon', email: 'pranav.m@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's17', roll_number: '2024CS017', name: 'Rhea Kapoor', email: 'rhea.k@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's18', roll_number: '2024CS018', name: 'Rohan Bhatnagar', email: 'rohan.b@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's19', roll_number: '2024CS019', name: 'Siddharth Rao', email: 'siddharth.r@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's20', roll_number: '2024CS020', name: 'Tanvi Mehta', email: 'tanvi.m@college.edu', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B2' },
-  { id: 's21', roll_number: '2504001', name: 'Abhiudhay Deep Verma', email: 'abhiudhay@gecbokaro.ac.in', department: 'Computer Science & Engineering', semester: 5, section: 'A', lab_batch: 'B1' }
+  { id: '00427b51-b62e-4312-90b6-5e776976adbb', roll_number: '2504001', name: 'ABHIUDHAY DEEPVERMA', email: 'tkd3038@gmail.com', department: 'EE VLSI', semester: 3, section: 'A', lab_batch: 'B1', phone: '6200576545' },
+  { id: '0641a597-5fde-447c-89c0-bb5b8b4accc8', roll_number: '2504002', name: 'ADITYA KUMAR', email: 'rhea.k@college.edu', department: 'EE VLSI', semester: 3, section: 'A', lab_batch: 'B1', phone: '+91 98765 43226' },
+  { id: '070cc3e2-0406-4602-8b66-66fd31a3b4ef', roll_number: '2504003', name: 'ADITYA RANJAN', email: 'pranav.m@college.edu', department: 'EE VLSI', semester: 3, section: 'A', lab_batch: 'B1', phone: '+91 98765 43225' },
+  { id: '1124a882-66f2-4e83-8efc-24f23058192e', roll_number: '2504008', name: 'ANUJ YADAV', email: 'pooja.b@college.edu', department: 'EE VLSI', semester: 3, section: 'A', lab_batch: 'B1', phone: '+91 9798612107' }
 ];
 
 // Built-in standard courses fallback so the course selector is never blank under any network condition
@@ -110,6 +93,22 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+
+  async bulkCreateStudents(data) {
+    const res = await fetch(`${API_BASE}/students/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+
+  async cleanDemoData() {
+    const res = await fetch(`${API_BASE}/students/clean-demo-data`, {
+      method: 'POST'
     });
     return handleResponse(res);
   },
@@ -259,7 +258,16 @@ export const api = {
     };
   },
 
-  // Sessions (Lecture vs Lab vs Extra Class)
+  async googleLogin(payload) {
+    const res = await fetch(`${API_BASE}/auth/google-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
+  },
+
+  // Sessions (Lecture vs Lab vs Extra Class vs Cancelled)
   async createSession(sessionData) {
     const res = await fetch(`${API_BASE}/sessions`, {
       method: 'POST',
@@ -278,6 +286,9 @@ export const api = {
     if (params.is_extra_class !== undefined && params.is_extra_class !== null) {
       query.append('is_extra_class', params.is_extra_class);
     }
+    if (params.is_cancelled !== undefined && params.is_cancelled !== null) {
+      query.append('is_cancelled', params.is_cancelled);
+    }
 
     const res = await fetch(`${API_BASE}/sessions?${query.toString()}`);
     return handleResponse(res);
@@ -285,6 +296,22 @@ export const api = {
 
   async getSessionById(id) {
     const res = await fetch(`${API_BASE}/sessions/${id}`);
+    return handleResponse(res);
+  },
+
+  async cancelSession(id, reason = '') {
+    const res = await fetch(`${API_BASE}/sessions/${id}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    return handleResponse(res);
+  },
+
+  async restoreSession(id) {
+    const res = await fetch(`${API_BASE}/sessions/${id}/restore`, {
+      method: 'POST'
+    });
     return handleResponse(res);
   },
 

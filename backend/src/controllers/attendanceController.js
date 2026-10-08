@@ -19,7 +19,17 @@ export const attendanceController = {
         });
       }
 
-      const formattedRecords = records.map(r => ({
+      // Deduplicate student records to guarantee no duplicate records can lodge
+      const seenStudentIds = new Set();
+      const uniqueRecords = [];
+      for (const r of records) {
+        if (r && r.student_id && !seenStudentIds.has(r.student_id)) {
+          seenStudentIds.add(r.student_id);
+          uniqueRecords.push(r);
+        }
+      }
+
+      const formattedRecords = uniqueRecords.map(r => ({
         session_id,
         student_id: r.student_id,
         status: r.status || 'present',

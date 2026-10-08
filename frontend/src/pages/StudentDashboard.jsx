@@ -21,7 +21,8 @@ import {
   Info,
   Layers,
   Zap,
-  Target
+  Target,
+  Ban
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -69,10 +70,13 @@ export default function StudentDashboard({ studentUser, onLogout }) {
   // Filtered session history
   const filteredHistory = useMemo(() => {
     if (historyFilter === 'extra') {
-      return history.filter(h => h.is_extra_class);
+      return history.filter(h => h.is_extra_class && !h.is_cancelled);
     }
     if (historyFilter === 'regular') {
-      return history.filter(h => !h.is_extra_class);
+      return history.filter(h => !h.is_extra_class && !h.is_cancelled);
+    }
+    if (historyFilter === 'cancelled') {
+      return history.filter(h => h.is_cancelled);
     }
     return history;
   }, [history, historyFilter]);
@@ -539,7 +543,7 @@ export default function StudentDashboard({ studentUser, onLogout }) {
               </div>
 
               {/* Filter Tabs */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl text-xs font-bold self-start sm:self-auto">
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl text-xs font-bold self-start sm:self-auto flex-wrap">
                 <button
                   onClick={() => setHistoryFilter('all')}
                   className={`px-3 py-1.5 rounded-xl transition-all ${
@@ -564,8 +568,28 @@ export default function StudentDashboard({ studentUser, onLogout }) {
                 >
                   ⚡ Extra Classes ({summary.extraClasses?.conducted || 0})
                 </button>
+                {Boolean(summary.cancelledClasses > 0) && (
+                  <button
+                    onClick={() => setHistoryFilter('cancelled')}
+                    className={`px-3 py-1.5 rounded-xl transition-all ${
+                      historyFilter === 'cancelled' ? 'bg-rose-600 text-white shadow-xs' : 'text-rose-700 bg-rose-50'
+                    }`}
+                  >
+                    🚫 Cancelled ({summary.cancelledClasses})
+                  </button>
+                )}
               </div>
             </div>
+
+            {/* Informational banner when classes were cancelled */}
+            {Boolean(summary.cancelledClasses > 0) && (
+              <div className="mx-4 sm:mx-5 my-3 p-3 bg-rose-50/80 border border-rose-200 rounded-2xl flex items-center gap-3 text-xs text-rose-900 font-medium">
+                <Ban className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>
+                  <strong>Official Notice:</strong> {summary.cancelledClasses} scheduled class{summary.cancelledClasses === 1 ? ' was' : 'es were'} cancelled by faculty. These are automatically excluded from total conducted sessions, fully protecting your attendance percentage.
+                </span>
+              </div>
+            )}
 
             <div className="divide-y divide-slate-100">
               {filteredHistory.length === 0 ? (
@@ -574,23 +598,29 @@ export default function StudentDashboard({ studentUser, onLogout }) {
                 </div>
               ) : (
                 filteredHistory.map((item, idx) => {
-                  const isPresent = item.status === 'present';
-                  const isLate = item.status === 'late';
-                  const isAbsent = item.status === 'absent';
+                  const isCancelled = item.is_cancelled || item.status === 'cancelled';
+                  const isPresent = !isCancelled && item.status === 'present';
+                  const isLate = !isCancelled && item.status === 'late';
+                  const isAbsent = !isCancelled && item.status === 'absent';
 
                   return (
-                    <div key={item.session_id || idx} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors">
+                    <div key={item.session_id || idx} className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                      isCancelled ? 'bg-rose-50/30 hover:bg-rose-50/60' : 'hover:bg-slate-50/70'
+                    }`}>
                       
                       <div className="flex items-start gap-3">
                         
                         {/* Status Icon Indicator */}
                         <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                          isPresent 
-                            ? 'bg-emerald-100 text-emerald-700' 
-                            : isLate 
-                              ? 'bg-amber-100 text-amber-700' 
-                              : 'bg-rose-100 text-rose-700'
+                          isCancelled
+                            ? 'bg-rose-100 text-rose-700'
+                            : isPresent 
+                              ? 'bg-emerald-100 text-emerald-700' 
+                              : isLate 
+                                ? 'bg-amber-100 text-amber-700' 
+                                : 'bg-rose-100 text-rose-700'
                         }`}>
+                          {isCancelled && <Ban className="w-5 h-5 text-rose-700" />}
                           {isPresent && <CheckCircle2 className="w-5 h-5" />}
                           {isLate && <Clock className="w-5 h-5" />}
                           {isAbsent && <XCircle className="w-5 h-5" />}
@@ -598,7 +628,7 @@ export default function StudentDashboard({ studentUser, onLogout }) {
 
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-extrabold text-sm text-slate-900">
+                            <span className={`font-extrabold text-sm ${isCancelled ? 'text-slate-600 line-through' : 'text-slate-900'}`}>
                               {item.course_code}: {item.course_name}
                             </span>
                             
@@ -612,10 +642,18 @@ export default function StudentDashboard({ studentUser, onLogout }) {
                             </span>
 
                             {/* Extra Class Highlight Badge */}
-                            {item.is_extra_class && (
+                            {item.is_extra_class && !isCancelled && (
                               <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
                                 <Zap className="w-3 h-3 text-amber-600" />
                                 <span>Extra Class{item.extra_reason ? `: ${item.extra_reason}` : ''}</span>
+                              </span>
+                            )}
+
+                            {/* Cancelled Class Badge */}
+                            {isCancelled && (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1">
+                                <Ban className="w-3 h-3 text-rose-600" />
+                                <span>Cancelled Class{item.cancellation_reason ? `: ${item.cancellation_reason}` : ''}</span>
                               </span>
                             )}
                           </div>
@@ -638,26 +676,41 @@ export default function StudentDashboard({ studentUser, onLogout }) {
                             )}
                           </div>
 
-                          {item.topic_covered && (
+                          {isCancelled ? (
+                            <p className="text-xs text-rose-700 font-semibold mt-1">
+                              🚫 {item.remarks || `Class was cancelled by professor${item.cancellation_reason ? ` (${item.cancellation_reason})` : ''}. Not counted towards attendance.`}
+                            </p>
+                          ) : item.topic_covered ? (
                             <p className="text-xs text-slate-600 mt-1 italic">
                               Topic: {item.topic_covered}
                             </p>
-                          )}
+                          ) : null}
                         </div>
 
                       </div>
 
                       {/* Right Status Badge */}
                       <div className="self-start sm:self-center shrink-0">
-                        <span className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider ${
-                          isPresent
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : isLate
-                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                              : 'bg-rose-100 text-rose-800 border border-rose-300'
-                        }`}>
-                          {item.status}
-                        </span>
+                        {isCancelled ? (
+                          <div className="text-right">
+                            <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-300 inline-block">
+                              Cancelled
+                            </span>
+                            <div className="text-[10px] font-bold text-slate-400 mt-0.5">
+                              Excluded from %
+                            </div>
+                          </div>
+                        ) : (
+                          <span className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider ${
+                            isPresent
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : isLate
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : 'bg-rose-100 text-rose-800 border border-rose-300'
+                          }`}>
+                            {item.status}
+                          </span>
+                        )}
                       </div>
 
                     </div>

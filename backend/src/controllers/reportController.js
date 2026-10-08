@@ -66,8 +66,17 @@ export const reportController = {
         records = records.filter(r => filteredSessionIds.has(r.session_id));
       }
 
-      const lectureSessions = sessions.filter(s => s.class_type === 'lecture');
-      const labSessions = sessions.filter(s => s.class_type === 'lab');
+      // Separate active and cancelled sessions
+      const isCancelledSession = (s) => Boolean(
+        s.is_cancelled === true ||
+        (typeof s.topic_covered === 'string' && s.topic_covered.includes('[CANCELLED'))
+      );
+
+      const activeSessions = sessions.filter(s => !isCancelledSession(s));
+      const cancelledSessions = sessions.filter(s => isCancelledSession(s));
+
+      const lectureSessions = activeSessions.filter(s => s.class_type === 'lecture');
+      const labSessions = activeSessions.filter(s => s.class_type === 'lab');
 
       // Create quick record lookup: session_id + student_id -> status
       const recordMap = new Map();
@@ -75,7 +84,7 @@ export const reportController = {
         recordMap.set(`${r.session_id}_${r.student_id}`, r.status);
       });
 
-      // Calculate per student metrics
+      // Calculate per student metrics solely on active (non-cancelled) conducted sessions
       const studentReports = students.map(student => {
         // Lecture stats
         const studentLectureSessions = lectureSessions;
@@ -213,7 +222,8 @@ export const reportController = {
           totalStudents,
           totalLectureSessions: lectureSessions.length,
           totalLabSessions: labSessions.length,
-          totalSessions: sessions.length,
+          totalSessions: activeSessions.length,
+          cancelledSessions: cancelledSessions.length,
           avgLecturePercentage: avgLecturePct,
           avgLabPercentage: avgLabPct,
           avgOverallPercentage: avgOverallPct,
@@ -298,7 +308,7 @@ export const reportController = {
         return false;
       });
 
-      // Session-by-session history with extra class metadata
+      // Session-by-session history with extra class and cancellation metadata
       const history = applicableSessions.map(sess => {
         const rec = recordMap.get(sess.id);
         const isExtra = Boolean(
@@ -309,6 +319,16 @@ export const reportController = {
         if (!extraReason && typeof sess.topic_covered === 'string' && sess.topic_covered.includes('[EXTRA CLASS:')) {
           const match = sess.topic_covered.match(/\[EXTRA CLASS:\s*([^\]]+)\]/);
           if (match) extraReason = match[1].trim();
+        }
+
+        const isCancelled = Boolean(
+          sess.is_cancelled === true ||
+          (typeof sess.topic_covered === 'string' && sess.topic_covered.includes('[CANCELLED'))
+        );
+        let cancellationReason = sess.cancellation_reason || null;
+        if (!cancellationReason && typeof sess.topic_covered === 'string' && sess.topic_covered.includes('[CANCELLED')) {
+          const match = sess.topic_covered.match(/\[CANCELLED(?::\s*([^\]]+))?\]/);
+          if (match && match[1]) cancellationReason = match[1].trim();
         }
 
         return {
@@ -322,15 +342,23 @@ export const reportController = {
           topic_covered: sess.topic_covered,
           is_extra_class: isExtra,
           extra_reason: extraReason,
-          status: rec ? rec.status : 'unmarked',
-          remarks: rec ? rec.remarks : null,
+          is_cancelled: isCancelled,
+          cancellation_reason: cancellationReason,
+          status: isCancelled ? 'cancelled' : (rec ? rec.status : 'unmarked'),
+          remarks: isCancelled 
+            ? `Class cancelled by professor${cancellationReason ? `: ${cancellationReason}` : ''} (Excluded from attendance percentage)` 
+            : (rec ? rec.remarks : null),
           marked_at: rec ? rec.marked_at : null
         };
       });
 
-      // Monthly aggregation
+      // Filter active (non-cancelled) sessions for monthly, subject, and overall calculations
+      const activeHistory = history.filter(h => !h.is_cancelled);
+      const cancelledSessionsCount = history.filter(h => h.is_cancelled).length;
+
+      // Monthly aggregation solely on active conducted sessions
       const monthlyMap = {};
-      history.forEach(item => {
+      activeHistory.forEach(item => {
         const mKey = item.date.substring(0, 7); // YYYY-MM
         if (!monthlyMap[mKey]) {
           monthlyMap[mKey] = {
@@ -374,26 +402,26 @@ export const reportController = {
           }
         }));
 
-      // Semester totals
-      const lectureItems = history.filter(h => h.class_type === 'lecture');
-      const labItems = history.filter(h => h.class_type === 'lab');
+      // Semester totals solely on active conducted sessions
+      const lectureItems = activeHistory.filter(h => h.class_type === 'lecture');
+      const labItems = activeHistory.filter(h => h.class_type === 'lab');
 
       const lectureAttended = lectureItems.filter(h => h.status === 'present' || h.status === 'late').length;
       const labAttended = labItems.filter(h => h.status === 'present' || h.status === 'late').length;
 
-      const totalConducted = history.length;
+      const totalConducted = activeHistory.length;
       const totalAttended = lectureAttended + labAttended;
       const overallPercentage = totalConducted > 0 ? Math.round((totalAttended / totalConducted) * 100) : 100;
 
       // Regular vs Extra Class breakdown
-      const extraItems = history.filter(h => h.is_extra_class);
-      const regularItems = history.filter(h => !h.is_extra_class);
+      const extraItems = activeHistory.filter(h => h.is_extra_class);
+      const regularItems = activeHistory.filter(h => !h.is_extra_class);
       const extraAttended = extraItems.filter(h => h.status === 'present' || h.status === 'late').length;
       const regularAttended = regularItems.filter(h => h.status === 'present' || h.status === 'late').length;
 
-      // Subject-wise Breakdown
+      // Subject-wise Breakdown solely on active conducted sessions
       const subjectMap = {};
-      history.forEach(item => {
+      activeHistory.forEach(item => {
         const key = item.course_code;
         if (!subjectMap[key]) {
           subjectMap[key] = {
@@ -497,6 +525,7 @@ export const reportController = {
             regularConducted: regularItems.length,
             regularAttended: regularAttended
           },
+          cancelledClasses: cancelledSessionsCount,
           is_low_attendance: totalConducted > 0 && overallPercentage < 75
         },
         subjects,

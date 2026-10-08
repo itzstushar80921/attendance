@@ -1,7 +1,7 @@
 import { supabase, isSupabaseConfigured, mockDb } from '../config/supabase.js';
 
 /**
- * Helper to normalize and attach extra class metadata
+ * Helper to normalize and attach extra class and cancellation metadata
  */
 export const formatSessionWithExtra = (s) => {
   if (!s) return s;
@@ -14,24 +14,50 @@ export const formatSessionWithExtra = (s) => {
     const match = s.topic_covered.match(/\[EXTRA CLASS:\s*([^\]]+)\]/);
     if (match) extraReason = match[1].trim();
   }
+
+  const isCancelled = Boolean(
+    s.is_cancelled === true ||
+    (typeof s.topic_covered === 'string' && s.topic_covered.includes('[CANCELLED'))
+  );
+  let cancellationReason = s.cancellation_reason || null;
+  if (!cancellationReason && typeof s.topic_covered === 'string' && s.topic_covered.includes('[CANCELLED')) {
+    const match = s.topic_covered.match(/\[CANCELLED(?::\s*([^\]]+))?\]/);
+    if (match && match[1]) cancellationReason = match[1].trim();
+  }
+
+  // Pure topic without tags for clean UI display
+  let cleanTopic = s.topic_covered || '';
+  if (typeof cleanTopic === 'string') {
+    cleanTopic = cleanTopic
+      .replace(/\[CANCELLED:[^\]]*\]\s*/gi, '')
+      .replace(/\[CANCELLED\]\s*/gi, '')
+      .replace(/\[EXTRA CLASS:[^\]]*\]\s*/gi, '')
+      .replace(/\[EXTRA CLASS\]\s*/gi, '')
+      .trim();
+  }
+
   return {
     ...s,
     is_extra_class: isExtra,
-    extra_reason: extraReason
+    extra_reason: extraReason,
+    is_cancelled: isCancelled,
+    cancellation_reason: cancellationReason,
+    clean_topic: cleanTopic
   };
 };
 
 /**
- * Controller for Attendance Sessions (Lecture / Lab / Extra Classes)
+ * Controller for Attendance Sessions (Lecture / Lab / Extra Classes / Cancellations)
  */
 export const sessionController = {
   /**
    * Create a new attendance session (Regular Lecture, Lab, or Extra Class)
+   * Prevents duplicate session lodging
    */
   async createSession(req, res, next) {
     try {
+      const class_type = req.body.class_type || req.body.type;
       const {
-        class_type,
         course_code,
         course_name,
         date,
@@ -46,7 +72,7 @@ export const sessionController = {
         extra_reason
       } = req.body;
 
-      if (!class_type || !['lecture', 'lab'].includes(class_type)) {
+      if (!class_type || !['lecture', 'lab'].includes(class_type.toLowerCase())) {
         return res.status(400).json({ 
           success: false, 
           message: "Class type is required and must be either 'lecture' or 'lab'" 
@@ -60,6 +86,51 @@ export const sessionController = {
         });
       }
 
+      const sessionDate = date || new Date().toISOString().split('T')[0];
+      const targetSem = semester ? parseInt(semester, 10) : 5;
+      const targetSec = section ? section.trim().toUpperCase() : 'A';
+      const targetBatch = class_type === 'lab' ? (lab_batch ? lab_batch.trim().toUpperCase() : 'B1') : 'All';
+
+      // DUPLICATE CHECK: Prevent lodging duplicate session for identical course, date, slot, sem, sec, batch
+      if (isSupabaseConfigured) {
+        const { data: existingSess } = await supabase
+          .from('attendance_sessions')
+          .select('*')
+          .eq('course_code', course_code)
+          .eq('date', sessionDate)
+          .eq('time_slot', time_slot)
+          .eq('semester', targetSem)
+          .eq('section', targetSec)
+          .eq('lab_batch', targetBatch)
+          .maybeSingle();
+
+        if (existingSess) {
+          return res.status(200).json({
+            success: true,
+            isExisting: true,
+            message: `A session for ${course_code} (${time_slot}) on ${sessionDate} already exists. Resuming existing session.`,
+            data: formatSessionWithExtra(existingSess)
+          });
+        }
+      } else {
+        const existingSess = mockDb.sessions.find(
+          s => s.course_code === course_code &&
+               s.date === sessionDate &&
+               s.time_slot === time_slot &&
+               s.semester === targetSem &&
+               s.section === targetSec &&
+               s.lab_batch === targetBatch
+        );
+        if (existingSess) {
+          return res.status(200).json({
+            success: true,
+            isExisting: true,
+            message: `A session for ${course_code} (${time_slot}) on ${sessionDate} already exists. Resuming existing session.`,
+            data: formatSessionWithExtra(existingSess)
+          });
+        }
+      }
+
       const isExtra = Boolean(is_extra_class);
       let formattedTopic = topic_covered || '';
       if (isExtra && !formattedTopic.includes('[EXTRA CLASS')) {
@@ -70,18 +141,17 @@ export const sessionController = {
         class_type,
         course_code,
         course_name: course_name || course_code,
-        date: date || new Date().toISOString().split('T')[0],
+        date: sessionDate,
         time_slot,
-        semester: semester ? parseInt(semester, 10) : 5,
-        section: section || 'A',
-        lab_batch: class_type === 'lab' ? (lab_batch || 'B1') : 'All',
+        semester: targetSem,
+        section: targetSec,
+        lab_batch: targetBatch,
         professor_name: professor_name || 'Dr. Robert Vance',
         topic_covered: formattedTopic,
         location: location || (class_type === 'lab' ? 'CS Lab' : 'LH-201')
       };
 
       if (isSupabaseConfigured) {
-        // Attempt insert with extra class fields if table has columns
         let insertedData = null;
         try {
           const { data, error } = await supabase
@@ -132,11 +202,177 @@ export const sessionController = {
   },
 
   /**
-   * Get sessions with optional class_type filter (lecture vs lab) and extra class filter
+   * Cancel a class session with a stated reason
+   * Automatically updates and deducts from attendance calculations
+   */
+  async cancelSession(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      const cleanReason = (reason && reason.trim()) ? reason.trim() : 'Cancelled by Instructor';
+
+      if (isSupabaseConfigured) {
+        // Fetch current session
+        const { data: sess, error: getErr } = await supabase
+          .from('attendance_sessions')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (getErr || !sess) {
+          return res.status(404).json({ success: false, message: 'Session not found' });
+        }
+
+        // Clean any existing cancelled tags and prepend updated cancellation tag
+        let topic = sess.topic_covered || '';
+        topic = topic.replace(/\[CANCELLED:[^\]]*\]\s*/gi, '').replace(/\[CANCELLED\]\s*/gi, '').trim();
+        const updatedTopic = `[CANCELLED: ${cleanReason}] ${topic}`.trim();
+
+        let updatedData = null;
+        try {
+          const { data, error } = await supabase
+            .from('attendance_sessions')
+            .update({
+              is_cancelled: true,
+              cancellation_reason: cleanReason,
+              topic_covered: updatedTopic
+            })
+            .eq('id', id)
+            .select()
+            .single();
+          if (!error && data) updatedData = data;
+        } catch {
+          // Fallback if is_cancelled column is not present
+        }
+
+        if (!updatedData) {
+          const { data, error } = await supabase
+            .from('attendance_sessions')
+            .update({
+              topic_covered: updatedTopic
+            })
+            .eq('id', id)
+            .select()
+            .single();
+          if (error) throw error;
+          updatedData = data;
+        }
+
+        const formatted = formatSessionWithExtra(updatedData);
+        return res.json({
+          success: true,
+          message: `Class session for ${sess.course_code} cancelled successfully. Attendance records have been updated.`,
+          data: formatted
+        });
+      }
+
+      // Mock DB
+      const sess = mockDb.sessions.find(s => s.id === id);
+      if (!sess) {
+        return res.status(404).json({ success: false, message: 'Session not found' });
+      }
+
+      let topic = sess.topic_covered || '';
+      topic = topic.replace(/\[CANCELLED:[^\]]*\]\s*/gi, '').replace(/\[CANCELLED\]\s*/gi, '').trim();
+      sess.topic_covered = `[CANCELLED: ${cleanReason}] ${topic}`.trim();
+      sess.is_cancelled = true;
+      sess.cancellation_reason = cleanReason;
+
+      return res.json({
+        success: true,
+        message: `Class session for ${sess.course_code} cancelled successfully. Attendance records have been updated.`,
+        data: formatSessionWithExtra(sess)
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Restore a previously cancelled session
+   */
+  async restoreSession(req, res, next) {
+    try {
+      const { id } = req.params;
+
+      if (isSupabaseConfigured) {
+        const { data: sess, error: getErr } = await supabase
+          .from('attendance_sessions')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (getErr || !sess) {
+          return res.status(404).json({ success: false, message: 'Session not found' });
+        }
+
+        let topic = sess.topic_covered || '';
+        topic = topic.replace(/\[CANCELLED:[^\]]*\]\s*/gi, '').replace(/\[CANCELLED\]\s*/gi, '').trim();
+
+        let updatedData = null;
+        try {
+          const { data, error } = await supabase
+            .from('attendance_sessions')
+            .update({
+              is_cancelled: false,
+              cancellation_reason: null,
+              topic_covered: topic
+            })
+            .eq('id', id)
+            .select()
+            .single();
+          if (!error && data) updatedData = data;
+        } catch {
+          // Column fallback
+        }
+
+        if (!updatedData) {
+          const { data, error } = await supabase
+            .from('attendance_sessions')
+            .update({ topic_covered: topic })
+            .eq('id', id)
+            .select()
+            .single();
+          if (error) throw error;
+          updatedData = data;
+        }
+
+        return res.json({
+          success: true,
+          message: 'Class session restored successfully. Attendance counts updated.',
+          data: formatSessionWithExtra(updatedData)
+        });
+      }
+
+      // Mock DB
+      const sess = mockDb.sessions.find(s => s.id === id);
+      if (!sess) {
+        return res.status(404).json({ success: false, message: 'Session not found' });
+      }
+
+      sess.topic_covered = (sess.topic_covered || '')
+        .replace(/\[CANCELLED:[^\]]*\]\s*/gi, '')
+        .replace(/\[CANCELLED\]\s*/gi, '')
+        .trim();
+      sess.is_cancelled = false;
+      sess.cancellation_reason = null;
+
+      return res.json({
+        success: true,
+        message: 'Class session restored successfully. Attendance counts updated.',
+        data: formatSessionWithExtra(sess)
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Get sessions with optional class_type filter, extra class filter, or cancelled filter
    */
   async getSessions(req, res, next) {
     try {
-      const { class_type, course_code, semester, date, is_extra_class } = req.query;
+      const { class_type, course_code, semester, date, is_extra_class, is_cancelled } = req.query;
 
       if (isSupabaseConfigured) {
         let query = supabase
@@ -145,7 +381,7 @@ export const sessionController = {
           .order('date', { ascending: false })
           .order('created_at', { ascending: false });
 
-        if (class_type && class_type !== 'all') {
+        if (class_type && class_type !== 'all' && class_type !== 'extra' && class_type !== 'cancelled') {
           query = query.eq('class_type', class_type);
         }
         if (course_code) query = query.eq('course_code', course_code);
@@ -160,13 +396,17 @@ export const sessionController = {
           const wantExtra = is_extra_class === 'true' || is_extra_class === true;
           formatted = formatted.filter(s => s.is_extra_class === wantExtra);
         }
+        if (is_cancelled !== undefined && is_cancelled !== null) {
+          const wantCancelled = is_cancelled === 'true' || is_cancelled === true;
+          formatted = formatted.filter(s => s.is_cancelled === wantCancelled);
+        }
 
         return res.json({ success: true, count: formatted.length, data: formatted });
       }
 
       // Mock fallback
       let list = [...mockDb.sessions].map(formatSessionWithExtra);
-      if (class_type && class_type !== 'all') {
+      if (class_type && class_type !== 'all' && class_type !== 'extra' && class_type !== 'cancelled') {
         list = list.filter(s => s.class_type === class_type);
       }
       if (course_code) list = list.filter(s => s.course_code === course_code);
@@ -175,6 +415,10 @@ export const sessionController = {
       if (is_extra_class !== undefined && is_extra_class !== null) {
         const wantExtra = is_extra_class === 'true' || is_extra_class === true;
         list = list.filter(s => s.is_extra_class === wantExtra);
+      }
+      if (is_cancelled !== undefined && is_cancelled !== null) {
+        const wantCancelled = is_cancelled === 'true' || is_cancelled === true;
+        list = list.filter(s => s.is_cancelled === wantCancelled);
       }
 
       list.sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -218,7 +462,7 @@ export const sessionController = {
         return res.status(404).json({ success: false, message: 'Session not found' });
       }
 
-      const records = mockDb.records
+      const records = (mockDb.records || [])
         .filter(r => r.session_id === id)
         .map(r => {
           const student = mockDb.students.find(st => st.id === r.student_id);
@@ -257,7 +501,7 @@ export const sessionController = {
       }
 
       mockDb.sessions = mockDb.sessions.filter(s => s.id !== id);
-      mockDb.records = mockDb.records.filter(r => r.session_id !== id);
+      mockDb.records = (mockDb.records || []).filter(r => r.session_id !== id);
 
       return res.json({ success: true, message: 'Session and its attendance records deleted' });
     } catch (err) {

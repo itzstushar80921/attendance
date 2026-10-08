@@ -34,24 +34,29 @@ export default function AttendanceSheet({
   const [searchTerm, setSearchTerm] = useState('');
   const [batchFilter, setBatchFilter] = useState('All');
 
-  // Filter students based on lab batch and search
+  // Filter students based on lab batch and search with resilient fallbacks
   const visibleStudents = useMemo(() => {
-    return (students || []).filter(st => {
-      // If session is for a specific lab batch, enforce that
-      if (sessionConfig.class_type === 'lab' && sessionConfig.lab_batch !== 'All') {
-        if (st.lab_batch !== sessionConfig.lab_batch) return false;
-      } else if (batchFilter !== 'All') {
-        if (st.lab_batch !== batchFilter) return false;
-      }
-
-      // Search term
+    let list = (students || []).filter(st => {
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
-        return st.name.toLowerCase().includes(q) || st.roll_number.toLowerCase().includes(q);
+        return (st.name || '').toLowerCase().includes(q) || (st.roll_number || '').toLowerCase().includes(q);
       }
-
       return true;
     });
+
+    if (sessionConfig.class_type === 'lab' && sessionConfig.lab_batch && sessionConfig.lab_batch !== 'All') {
+      const batchList = list.filter(st => st.lab_batch === sessionConfig.lab_batch);
+      if (batchList.length > 0) {
+        return batchList;
+      }
+    } else if (batchFilter && batchFilter !== 'All') {
+      const pillList = list.filter(st => st.lab_batch === batchFilter);
+      if (pillList.length > 0) {
+        return pillList;
+      }
+    }
+
+    return list;
   }, [students, sessionConfig, batchFilter, searchTerm]);
 
   // Aggregate stats
@@ -274,6 +279,20 @@ export default function AttendanceSheet({
           </div>
         )}
       </div>
+
+      {/* Lab Batch Warning Notification if Selected Batch has 0 students */}
+      {sessionConfig.class_type === 'lab' && sessionConfig.lab_batch && sessionConfig.lab_batch !== 'All' && !(students || []).some(st => st.lab_batch === sessionConfig.lab_batch) && (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs font-semibold text-amber-900 flex items-center justify-between gap-3 shadow-xs">
+          <span>💡 <strong>Notice:</strong> Batch <strong>{sessionConfig.lab_batch}</strong> has no registered students yet. Displaying all {students.length} enrolled students so you can proceed.</span>
+          <button
+            type="button"
+            onClick={handleResetFiltersAndShowAll}
+            className="text-xs font-black text-amber-900 bg-amber-200/90 hover:bg-amber-300 px-3 py-1.5 rounded-xl shrink-0 transition-all shadow-xs"
+          >
+            All Batches
+          </button>
+        </div>
+      )}
 
       {/* Student List */}
       <div className="space-y-2 pb-24">

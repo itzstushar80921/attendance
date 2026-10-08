@@ -116,6 +116,35 @@ export const studentController = {
         phone: phone ? phone.trim() : ''
       };
 
+      // Email duplicate check to ensure no duplicate email data can lodge
+      if (email && email.trim()) {
+        const cleanEmail = email.trim().toLowerCase();
+        if (isSupabaseConfigured) {
+          const { data: existingEmail } = await supabase
+            .from('students')
+            .select('id, roll_number, name')
+            .ilike('email', cleanEmail)
+            .maybeSingle();
+
+          if (existingEmail && existingEmail.roll_number.toUpperCase() !== cleanRoll) {
+            return res.status(409).json({
+              success: false,
+              isDuplicate: true,
+              message: `Email "${cleanEmail}" is already registered to "${existingEmail.name}" (${existingEmail.roll_number}). Duplicate emails cannot be lodged.`
+            });
+          }
+        } else {
+          const existingEmail = mockDb.students.find(s => s.email && s.email.toLowerCase() === cleanEmail);
+          if (existingEmail && existingEmail.roll_number.toUpperCase() !== cleanRoll) {
+            return res.status(409).json({
+              success: false,
+              isDuplicate: true,
+              message: `Email "${cleanEmail}" is already registered to "${existingEmail.name}" (${existingEmail.roll_number}). Duplicate emails cannot be lodged.`
+            });
+          }
+        }
+      }
+
       if (isSupabaseConfigured) {
         // Check if student with this roll number already exists
         const { data: existing, error: checkErr } = await supabase
@@ -144,7 +173,7 @@ export const studentController = {
             return res.status(409).json({
               success: false,
               isDuplicate: true,
-              message: `Roll Number "${cleanRoll}" is already assigned to "${existing.name}" (Semester ${existing.semester}, Batch ${existing.lab_batch}).`,
+              message: `Roll Number "${cleanRoll}" is already assigned to "${existing.name}" (Semester ${existing.semester}, Batch ${existing.lab_batch}). Duplicate roll numbers cannot lodge.`,
               existingStudent: existing
             });
           }
@@ -161,7 +190,7 @@ export const studentController = {
           if (error.code === '23505') {
             return res.status(409).json({
               success: false,
-              message: `Duplicate entry: A student with this roll number or email already exists.`
+              message: `Duplicate entry: A student with this roll number or email already exists in Government Engineering College records.`
             });
           }
           throw error;
@@ -184,7 +213,7 @@ export const studentController = {
           return res.status(409).json({
             success: false,
             isDuplicate: true,
-            message: `Roll Number "${cleanRoll}" is already registered to "${mockDb.students[existingIdx].name}".`,
+            message: `Roll Number "${cleanRoll}" is already registered to "${mockDb.students[existingIdx].name}". Duplicate roll numbers cannot lodge.`,
             existingStudent: mockDb.students[existingIdx]
           });
         }
@@ -198,6 +227,146 @@ export const studentController = {
         success: true, 
         message: `Student ${newStudent.name} (${cleanRoll}) added successfully!`, 
         data: studentWithId 
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Bulk Register Students (Prevents all duplicate lodging)
+   */
+  async bulkCreateStudents(req, res, next) {
+    try {
+      const { students: studentList, default_semester, default_section, default_batch } = req.body;
+      if (!Array.isArray(studentList) || studentList.length === 0) {
+        return res.status(400).json({ success: false, message: 'Non-empty students array is required.' });
+      }
+
+      const cleanList = [];
+      const seenRolls = new Set();
+      const duplicatesInBatch = [];
+
+      for (const item of studentList) {
+        if (!item.roll_number || !item.name) continue;
+        const cleanRoll = item.roll_number.trim().toUpperCase();
+        if (seenRolls.has(cleanRoll)) {
+          duplicatesInBatch.push(cleanRoll);
+          continue;
+        }
+        seenRolls.add(cleanRoll);
+
+        cleanList.push({
+          roll_number: cleanRoll,
+          name: item.name.trim(),
+          email: item.email?.trim() || `${cleanRoll.toLowerCase()}@college.edu`,
+          department: item.department || 'Computer Science & Engineering',
+          semester: item.semester ? parseInt(item.semester, 10) : (default_semester ? parseInt(default_semester, 10) : 5),
+          section: (item.section || default_section || 'A').trim().toUpperCase(),
+          lab_batch: (item.lab_batch || default_batch || 'B1').trim().toUpperCase(),
+          phone: item.phone?.trim() || ''
+        });
+      }
+
+      if (cleanList.length === 0) {
+        return res.status(400).json({ success: false, message: 'No valid student entries found with Roll Number and Name.' });
+      }
+
+      if (isSupabaseConfigured) {
+        // Fetch existing rolls to prevent duplicates
+        const { data: existing } = await supabase
+          .from('students')
+          .select('roll_number');
+
+        const existingSet = new Set((existing || []).map(s => s.roll_number.toUpperCase()));
+        const toInsert = cleanList.filter(s => !existingSet.has(s.roll_number));
+        const existingSkipped = cleanList.filter(s => existingSet.has(s.roll_number)).map(s => s.roll_number);
+
+        if (toInsert.length > 0) {
+          const { data, error } = await supabase
+            .from('students')
+            .insert(toInsert)
+            .select();
+
+          if (error) throw error;
+
+          return res.status(201).json({
+            success: true,
+            message: `Successfully added ${toInsert.length} student${toInsert.length === 1 ? '' : 's'}.${existingSkipped.length > 0 ? ` Skipped ${existingSkipped.length} existing duplicate(s).` : ''}`,
+            count: toInsert.length,
+            added: data,
+            skippedDuplicates: existingSkipped,
+            duplicatesInBatch
+          });
+        }
+
+        return res.status(409).json({
+          success: false,
+          isDuplicate: true,
+          message: 'All students in the submitted list already exist in the database.',
+          skippedDuplicates: existingSkipped
+        });
+      }
+
+      // Mock
+      const existingSet = new Set(mockDb.students.map(s => s.roll_number.toUpperCase()));
+      const toInsert = cleanList.filter(s => !existingSet.has(s.roll_number));
+      const existingSkipped = cleanList.filter(s => existingSet.has(s.roll_number)).map(s => s.roll_number);
+
+      toInsert.forEach((st, idx) => {
+        mockDb.students.push({
+          id: `s_bulk_${Date.now()}_${idx}`,
+          ...st
+        });
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: `Successfully added ${toInsert.length} student${toInsert.length === 1 ? '' : 's'}.`,
+        count: toInsert.length,
+        added: toInsert,
+        skippedDuplicates: existingSkipped,
+        duplicatesInBatch
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Remove Demo Data from database
+   */
+  async cleanDemoData(req, res, next) {
+    try {
+      const demoRolls = [];
+      for (let i = 1; i <= 20; i++) {
+        const num = i < 10 ? '00' + i : '0' + i;
+        demoRolls.push('2024CS' + num);
+      }
+      const demoSessionIds = [
+        '11111111-1111-1111-1111-111111111101',
+        '11111111-1111-1111-1111-111111111102',
+        '11111111-1111-1111-1111-111111111103',
+        '11111111-1111-1111-1111-111111111104',
+        '22222222-2222-2222-2222-222222222201',
+        '22222222-2222-2222-2222-222222222202',
+        '22222222-2222-2222-2222-222222222203',
+        '22222222-2222-2222-2222-222222222204'
+      ];
+
+      if (isSupabaseConfigured) {
+        await supabase.from('attendance_records').delete().in('session_id', demoSessionIds);
+        await supabase.from('attendance_sessions').delete().in('id', demoSessionIds);
+        await supabase.from('students').delete().in('roll_number', demoRolls);
+      }
+
+      mockDb.students = mockDb.students.filter(s => !demoRolls.includes(s.roll_number));
+      mockDb.sessions = mockDb.sessions.filter(s => !demoSessionIds.includes(s.id));
+      mockDb.records = (mockDb.records || []).filter(r => !demoSessionIds.includes(r.session_id));
+
+      return res.json({
+        success: true,
+        message: 'Demo students and sessions removed successfully from database.'
       });
     } catch (err) {
       next(err);

@@ -185,7 +185,7 @@ export default function UnifiedReport() {
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            {summary.totalSessions || 0} total sessions held
+            {summary.totalSessions || 0} active sessions conducted {Boolean(summary.cancelledSessions > 0) && `• ${summary.cancelledSessions} cancelled`}
           </p>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 to-violet-500" />
         </div>
