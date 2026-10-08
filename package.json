@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Mobile Attendance System for College Professors (Supabase, Express on Render, React on Vercel)",
   "scripts": {
+    "start": "node backend/src/server.js",
+    "build": "npm run build --prefix frontend",
+    "dev": "node backend/src/server.js",
     "dev:backend": "npm run dev --prefix backend",
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend",

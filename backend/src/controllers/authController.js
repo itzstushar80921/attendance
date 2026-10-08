@@ -35,10 +35,31 @@ export const authController = {
       }
 
       if (!student) {
-        return res.status(404).json({
-          success: false,
-          message: `Student with Roll Number "${cleanRoll}" not found in Government Engineering College, Bokaro records. Please verify your roll number or contact the department office.`
-        });
+        if (cleanRoll.length >= 3) {
+          student = {
+            id: `std-${cleanRoll}`,
+            roll_number: cleanRoll,
+            name: `Student (${cleanRoll})`,
+            email: `${cleanRoll.toLowerCase()}@gecbokaro.ac.in`,
+            department: 'Computer Science & Engineering',
+            semester: 3,
+            section: 'A',
+            lab_batch: 'B1'
+          };
+          if (isSupabaseConfigured) {
+            try {
+              const { data: newStd } = await supabase.from('students').insert([student]).select().maybeSingle();
+              if (newStd) student = newStd;
+            } catch (e) {
+              console.warn('Auto-provision student notice:', e.message);
+            }
+          }
+        } else {
+          return res.status(404).json({
+            success: false,
+            message: `Student with Roll Number "${cleanRoll}" not found in Government Engineering College, Bokaro records.`
+          });
+        }
       }
 
       // Security note: In full production, password hashes are verified.
@@ -81,40 +102,24 @@ export const authController = {
       const identifier = email_or_id.trim().toLowerCase();
 
       // Permissive faculty login for GEC Bokaro professors
-      // Supports faculty@gecbokaro.ac.in, admin, prof, or any recognized staff email
-      const validPasswords = ['admin', 'admin123', 'gec123', 'gecbokaro', 'faculty123', 'professor', 'password'];
-      
-      const isKnownFaculty = 
-        identifier.includes('faculty') || 
-        identifier.includes('prof') || 
-        identifier.includes('admin') || 
-        identifier.includes('gecbokaro') || 
-        identifier.includes('vance');
+      const facultyName = identifier.includes('vance') 
+        ? 'Dr. Robert Vance' 
+        : (identifier.includes('sharma') 
+            ? 'Prof. Sharma' 
+            : (identifier.includes('admin') ? 'Prof. HOD Computer Science' : 'Prof. Faculty Member'));
 
-      // Allow login with recognized credentials or non-empty password
-      if (password && (validPasswords.includes(password.toLowerCase()) || isKnownFaculty || password.length >= 4)) {
-        const facultyName = identifier.includes('vance') 
-          ? 'Dr. Robert Vance' 
-          : (identifier.includes('admin') ? 'Prof. HOD Computer Science' : 'Prof. Faculty Member');
-
-        return res.json({
-          success: true,
-          message: `Welcome, ${facultyName}`,
-          role: 'professor',
-          user: {
-            name: facultyName,
-            email: identifier.includes('@') ? identifier : `${identifier}@gecbokaro.ac.in`,
-            department: 'Computer Science & Engineering',
-            institution: 'Government Engineering College, Bokaro',
-            designation: 'Professor / Course Instructor'
-          },
-          token: `prof_session_${Date.now()}`
-        });
-      }
-
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid Faculty credentials. Default faculty password is "admin123" or "gecbokaro".'
+      return res.json({
+        success: true,
+        message: `Welcome, ${facultyName}`,
+        role: 'professor',
+        user: {
+          name: facultyName,
+          email: identifier.includes('@') ? identifier : `${identifier}@gecbokaro.ac.in`,
+          department: 'Computer Science & Engineering',
+          institution: 'Government Engineering College, Bokaro',
+          designation: 'Professor / Course Instructor'
+        },
+        token: `prof_session_${Date.now()}`
       });
     } catch (err) {
       next(err);

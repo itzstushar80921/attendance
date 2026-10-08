@@ -11,34 +11,32 @@ import authRoutes from './routes/authRoutes.js';
 import { studentController } from './controllers/studentController.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
 // Load environment variables
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '../../frontend/dist');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim())
-  : ['http://localhost:5173', 'http://localhost:3000'];
-
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, Postman) or matching origins
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.render.com')) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Permissive in dev/cloud demo mode for easy cross-origin evaluation
-    }
-  },
+  origin: (origin, callback) => callback(null, true),
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 }));
 
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Health check endpoint (essential for Render health check)
+// Health check endpoint (essential for Render health check & frontend connectivity)
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -58,8 +56,21 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/reports', reportRoutes);
 
-// Catch 404
-app.use((req, res, next) => {
+// Serve built frontend assets if dist folder exists
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  
+  // SPA Catch-all: serve index.html for non-API routes
+  app.get('*', (req, res, next) => {
+    if (req.originalUrl.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+// Catch 404 for unmatched API routes
+app.use('/api', (req, res) => {
   res.status(404).json({
     success: false,
     message: `API route not found: ${req.method} ${req.originalUrl}`
